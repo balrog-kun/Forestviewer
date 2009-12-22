@@ -893,9 +893,9 @@ forestnode.prototype.show = function(forest) {
 				forest.scale) + "px";
 		this.info.style.width =
 			Math.round(maxwidth * forest.scale) + "px";
-		this.info.style.height =
+/*		this.info.style.height =
 			Math.round(forest.nodeheight * forest.scale) + "px";
-		if (this.opacity)
+*/		if (this.opacity)
 			this.info.style.opacity = this.opacity;
 	}
 
