@@ -559,6 +559,9 @@ function forestnode(inputnode) {
 		this.terminal = this.terminal[0];
 	this.attrs = inputnode.attrs;
 
+	if (!("space" in this))
+		this.space = 0.0;
+
 	if (this.terminal) {
 		this.leaf = true;
 		if (this.subtrees == 1)
@@ -604,24 +607,22 @@ forestnode.prototype.set_default_tree = function(forest) {
 
 forestnode.prototype.update_depth = function() {
 	if (this.leaf) {
-		if (this.incomplete)
-			this.depth = [ 1.0, 1.0, 1.0, 0.0 ];
-		else
-			this.depth = [ 0.5, 0.5, 0.5, 0.0 ];
+		var space = (this.incomplete ? 1.0 : 0.5) + this.space;
+		this.depth = [ space, space, space, 0 ];
 		return;
 	}
 
-	var depth = this.hidden ? 0 : 0.5;
-	this.depth = [ 0x1000, -1, depth, -1 ]
+	var space = (this.hidden ? 0 : 0.5) + this.space;
+	this.depth = [ 0x1000, -1, space, -1 ]
 	for (var chnum in this.children[this.current].child) {
 		var subnode = this.children[this.current].child[chnum];
 
 		subnode.update_depth();
 
-		if (subnode.depth[0] + depth < this.depth[0])
-			this.depth[0] = subnode.depth[0] + depth;
-		if (subnode.depth[1] + depth > this.depth[1])
-			this.depth[1] = subnode.depth[1] + depth;
+		if (subnode.depth[0] + space < this.depth[0])
+			this.depth[0] = subnode.depth[0] + space;
+		if (subnode.depth[1] + space > this.depth[1])
+			this.depth[1] = subnode.depth[1] + space;
 		if (subnode.depth[3] + 1 > this.depth[3])
 			this.depth[3] = subnode.depth[3] + 1;
 	}
@@ -893,9 +894,10 @@ forestnode.prototype.show = function(forest) {
 				forest.scale) + "px";
 		this.info.style.width =
 			Math.round(maxwidth * forest.scale) + "px";
-/*		this.info.style.height =
-			Math.round(forest.nodeheight * forest.scale) + "px";
-*/		if (this.opacity)
+		this.info.style.height =
+			Math.round(forest.nodeheight * (1 + this.space)
+					* forest.scale) + "px";
+		if (this.opacity)
 			this.info.style.opacity = this.opacity;
 	}
 
@@ -965,11 +967,17 @@ forestnode.prototype.show = function(forest) {
 		var y3 = forest.nodeheight * 0.45 - y2 - y1;
 		var y4 = yoff - height;
 
-		if (Math.abs(x3 - x0) < Math.abs(y2)) {
-			x1 = x2 = x3;
-			y2 = y4;
-			y3 = y4 = 0;
-		}
+		var path =
+			/* First move a little straight south */
+			"0," + y1 + " " +
+			/* Then turn in the direction of child node */
+			(x1 - x0) + "," + y2 + " " +
+			/* Now we should be just above it, turn down again */
+			(x2 - x1) + "," + y3 + " " + (x3 - x2) + "," + y4;
+
+		if (Math.abs(x3 - x0) < Math.abs(y2))
+			path = "0," + y1 + " " +
+				(x3 - x0) + "," + (y2 + y3 + y4);
 
 		if (!child.link) {
 			child.link = document.createElementNS(forest.graph_ns,
@@ -984,13 +992,7 @@ forestnode.prototype.show = function(forest) {
 
 		child.link.setAttributeNS(null, "d", "M" +
 			/* Start shifted in the direction of the child node */
-			(this.x + x0) + "," + (this.y + y0) +
-			/* First move a little straight south */
-			" t0," + y1 + " " +
-			/* Then turn in the direction of child node */
-			(x1 - x0) + "," + y2 + " " +
-			/* Now we should be just above it, turn down again */
-			(x2 - x1) + "," + y3 + " " + (x3 - x2) + "," + y4);
+			(this.x + x0) + "," + (this.y + y0) + " t" + path);
 
 		//	/* Start shifted in the direction of the child node */
 		//	(this.x + xoff * 0.1) + "," + (this.y + height * 0.2) +
