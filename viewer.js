@@ -701,7 +701,7 @@ forestnode.prototype.popup_fill = function(forest) {
 	forest.popup.innerHTML = "";
 
 	var str = "";
-	var prev = -1;
+	var prev;
 	var add = function(txt, re) {
 		str = "";
 
@@ -730,11 +730,11 @@ forestnode.prototype.popup_fill = function(forest) {
 		forest.popup.appendChild(span);
 	}
 	for (var name in this.attrs) {
+		prev = -1;
 		add(name, [ name, "" ], true);
 		forest.popup.appendChild(document.createTextNode(": "));
 
 		var label = this.attrs[name];
-		prev = -1;
 		for (var c = 0; c < label.length; c ++) {
 			var sep = separators.indexOf(label[c]) > -1;
 			if (sep != prev && prev != -1)
