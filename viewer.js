@@ -555,9 +555,16 @@ function forestnode(inputnode) {
 		if (prop[0] != '#')
 			this[prop] = inputnode[prop];
 
+	if (!("attrs" in this))
+		this.attrs = {};
+	if (!("attrs_order" in this)) {
+		this.attrs_order = [];
+		for (var attr in this.attrs)
+			this.attrs_order.push(attr);
+	}
+
 	if (this.terminal && this.terminal.length)
 		this.terminal = this.terminal[0];
-	this.attrs = inputnode.attrs;
 
 	if (!("space" in this))
 		this.space = 0.0;
@@ -729,7 +736,8 @@ forestnode.prototype.popup_fill = function(forest) {
 
 		forest.popup.appendChild(span);
 	}
-	for (var name in this.attrs) {
+	for (var num in this.attrs_order) {
+		var name = this.attrs_order[num];
 		prev = -1;
 		add(name, [ name, "" ], true);
 		forest.popup.appendChild(document.createTextNode(": "));
