@@ -416,7 +416,7 @@ treeviewer.prototype.popup_hide = function() {
 }
 
 treeviewer.prototype.popup_update = function() {
-	this.popped = (this.popup.style.visibility == "visible");
+	this.popped = this.popup.style.visibility == "visible";
 }
 
 treeviewer.prototype.set_general_info = function(forest) {
