@@ -755,6 +755,13 @@ forestnode.prototype.popup_fill = function(forest) {
 		forest.popup.appendChild(document.createElement("br"));
 	}
 
+	if (forest.helper.popup_info) {
+		var userinfo = document.createElement("div");
+		forest.helper.popup_info(this, userinfo, forest);
+		forest.popup.appendChild(userinfo);
+		return;
+	}
+
 	if (this.leaf)
 		return;
 
