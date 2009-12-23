@@ -957,6 +957,9 @@ forestnode.prototype.show = function(forest) {
 	else if (left == right &&
 		left + right == this.children[this.current].child.length)
 		xs += 0.5;
+	var head = (this.children[this.current].child.length > 1 &&
+			this.children[this.current].head != undefined) ?
+			this.children[this.current].head : -1;
 	for (var chnum in this.children[this.current].child) {
 		var child = this.children[this.current].child[chnum];
 		child.show(forest);
@@ -995,7 +998,38 @@ forestnode.prototype.show = function(forest) {
 			child.link.setAttributeNS(null, "stroke",
 					forest.nodebgcolour);
 
+
 			forest.image.appendChild(child.link);
+
+			if (chnum == head) {
+				child.linkhead = document.createElement("div");
+				child.linkhead.className = "head";
+				child.linkhead.style.position = "absolute";
+				child.linkhead.innerHTML = "&#9660;";
+				forest.blackboard.appendChild(child.linkhead);
+/*				child.link.setAttributeNS(null,
+						"id", "w" + child.nid);
+				child.linkhead = document.createElementNS(
+						forest.graph_ns, "text");
+				child.linkhead.setAttributeNS(null,
+						"fill", "black");
+				child.linkhead.setAttributeNS(null,
+						"font-size", "20");
+				child.linkhead.setAttributeNS(null,
+						"font-family", "Verdana");
+
+				var tp = document.createElementNS(
+						forest.graph_ns, "textPath");
+				tp.setAttributeNS(
+						"http://www.w3.org/1999/xlink",
+						"xlink:href", "#w" + child.nid);
+				tp.appendChild(document.createTextNode(
+						"Hello!&#9664;"));
+				child.linkhead.appendChild(tp);
+
+				forest.image.appendChild(child.linkhead);
+*/
+			}
 		}
 
 		child.link.setAttributeNS(null, "d", "M" +
@@ -1010,6 +1044,17 @@ forestnode.prototype.show = function(forest) {
 		//	(xoff * 0.4) + "," + (forest.nodeheight * 0.2) + " " +
 		//	/* Now we should be just above it, turn down again */
 		//	(xoff * 0.35) + "," + (forest.nodeheight * 0.25));
+
+		if (child.linkhead) {
+			child.linkhead.style.left =
+				Math.round((child.x - 0.2) *
+					forest.scale) + "px";
+			child.linkhead.style.top =
+				Math.round((child.y - height) *
+					forest.scale) + "px";
+			child.linkhead.style.width =
+				Math.round(forest.scale * 0.4) + "px";
+		}
 
 		if (xoff < -0.01)
 			ys += 1.0;
@@ -1026,6 +1071,11 @@ forestnode.prototype.hide = function(forest) {
 	if (this.link) {
 		forest.image.removeChild(this.link);
 		delete this["link"];
+
+		if (this.linkhead) {
+			forest.blackboard.removeChild(this.linkhead);
+			delete this["linkhead"];
+		}
 	}
 
 	if (this.info) {
