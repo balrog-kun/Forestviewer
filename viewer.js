@@ -1018,8 +1018,7 @@ forestnode.prototype.show = function(forest) {
 	else if (left == right &&
 		left + right == this.children[this.current].child.length)
 		xs += 0.5;
-	var head = (this.children[this.current].child.length > 1 &&
-			this.children[this.current].head != undefined) ?
+	var head = this.children[this.current].head != undefined ?
 			this.children[this.current].head : -1;
 	for (var chnum in this.children[this.current].child) {
 		var child = this.children[this.current].child[chnum];
