@@ -68,8 +68,10 @@ treeviewer.prototype.unload = function() {
 		/* Unref */
 		delete this["image"];
 		delete this["blackboard"];
-		if (this.ruler)
+		if (this.ruler) {
 			delete this["ruler"];
+			delete this["ruler_span"];
+		}
 	}
 
 	if (this.id in forests)
@@ -241,6 +243,19 @@ treeviewer.prototype.load = function(input) {
 	if (this.ruler)
 		this.ruler.style.top = this.visibleheight + "px";
 
+	if (this.variablewidth) {
+		for (var i = this.startnode.from; i <= this.startnode.to; i ++)
+			this.columns[i] = 0;
+		if (!("horiz_space" in this))
+			this.horiz_space = 0.02;
+		this.startnode.relayout(this);
+		/* TODO: only until relayout learns setting x1 */
+		this.startnode.place(0, this);
+		this.step = 100;
+		this.anim_update();
+		this.show(this);
+	}
+
 	/* Center */
 	if (this.html_width < this.display.offsetWidth) {
 		this.html_left = (this.display.offsetWidth -
@@ -260,11 +275,10 @@ treeviewer.prototype.show = function() {
 		(this.startnode.depth[1] + this.startnode.depth[3] * 0.5);
 
 	this.html_width = this.scale *
-		(this.startnode.to - this.startnode.from);
+		(this.columns[this.startnode.to] -
+		 this.columns[this.startnode.from]);
 	this.html_height = svg_bottom * this.scale;
 
-	this.image.style.left = Math.round(this.html_left) + "px";
-	this.image.style.top = Math.round(this.html_top) + "px";
 	this.image.style.width = Math.round(this.html_width) + "px";
 	this.image.style.height = Math.round(this.html_height) + "px";
 	this.update_viewbox(1);
@@ -635,6 +649,7 @@ forestnode.prototype.update_depth = function() {
 	}
 }
 
+/* TODO: rename these two as horiz layout and vert layout */
 forestnode.prototype.place = function(y, forest) {
 	var height = forest.nodeheight * 0.5;
 
@@ -651,6 +666,41 @@ forestnode.prototype.place = function(y, forest) {
 			this.depth[1]) / this.depth[3];
 	for (var chnum in this.children[this.current].child)
 		this.children[this.current].child[chnum].place(y, forest);
+}
+
+/* A smarter version of this could have different width spaces between
+ * columents, basically there would be a left x and right x value for
+ * every column and some smarter logic.. */
+forestnode.prototype.relayout = function(forest) {
+	if (!this.leaf) //// TODO: send veritto a postcard
+		/* Note this assumes left-to-right order */
+		for (var chnum in this.children[this.current].child)
+			this.children[this.current].child[chnum].relayout(
+					forest);
+
+	if (!this.elem || this.hidden)
+		return;
+
+	var subwidth = forest.columns[this.to] - forest.columns[this.from];
+	var width = this.elem.offsetWidth * 1.0 / forest.scale;
+	if (this.ruler) {
+		var rwidth = this.ruler_span.offsetWidth * 1.0 / forest.scale;
+		if (rwidth > width)
+			width = rwidth;
+	}
+	width += forest.horiz_space;
+
+	if (subwidth >= width)
+		return;
+	if (subwidth < 0.1) {
+		forest.columns[this.to] = forest.columns[this.from] + width;
+		return;
+	}
+
+	for (var c = this.from + 1; c <= this.to; c ++)
+		forest.columns[c] = forest.columns[this.from] +
+			(forest.columns[c] - forest.columns[this.from]) *
+			width / subwidth;
 }
 
 forestnode.prototype.update_info = function(onover, onout, onwheel) {
@@ -814,8 +864,12 @@ forestnode.prototype.show_ruler = function(forest) {
 			this.ruler = document.createElement("div");
 			this.ruler.className = "lexeme";
 			this.ruler.style.position = "absolute";
-			this.ruler.innerHTML = node_orth(this).to_xml_safe();
 
+			this.ruler_span = document.createElement("span");
+			this.ruler_span.innerHTML =
+					node_orth(this).to_xml_safe();
+
+			this.ruler.appendChild(this.ruler_span);
 			forest.ruler.appendChild(this.ruler);
 		}
 
@@ -1143,6 +1197,7 @@ forestnode.prototype.wheel = function(evt, forest) {
 
 	forest.startnode.update_depth();
 	forest.startnode.place(0, forest);
+	forest.startnode.relayout(forest); /* TODO: needs to be animated */
 
 	function node_update(node) {
 		node.x = node.x1;
