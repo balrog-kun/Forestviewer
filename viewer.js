@@ -417,7 +417,7 @@ treeviewer.prototype.popup_show = function(style, x, y) {
 	if (x == null)
 		x = this.display.offsetLeft + "px";
 	else
-		x = Math.round(this.display.offserLeft +
+		x = Math.round(this.display.offsetLeft +
 				this.display.clientLeft +
 				this.html_left + x * this.scale) + "px";
 	if (y == null)
@@ -494,7 +494,7 @@ treeviewer.prototype.up = function(evt) {
 	var dy = parseInt(evt.pageY) - this.down_y;
 
 	if ((dx == 0 && dy > -2 && dy < 2) || (dy == 0 && dx > -2 && dx < 2)) {
-		if (this.pop)
+		if (this.pop && this.popup_on_init)
 			this.set_general_info(this.forest);
 		return;
 	}
@@ -1152,7 +1152,7 @@ forestnode.prototype.show_simple = function(forest) {
 	var maxwidth = forest.columns[this.to] - forest.columns[this.from];
 	var width = maxwidth * 0.9;
 	if (width < 0.9)
-		width = 0.9;
+		width = maxwidth;
 	var height = forest.nodeheight * 0.5;
 
 	if (!this.graph && !this.hidden) {
