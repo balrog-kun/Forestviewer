@@ -627,13 +627,14 @@ forestnode.prototype.set_default_tree = function(forest) {
 }
 
 forestnode.prototype.update_depth = function() {
+	var space = (this.hidden ? 0 : 0.5) + this.space;
 	if (this.leaf) {
-		var space = (this.incomplete ? 1.0 : 0.5) + this.space;
+		if (this.incomplete)
+			space += 0.5;
 		this.depth = [ space, space, space, 0 ];
 		return;
 	}
 
-	var space = (this.hidden ? 0 : 0.5) + this.space;
 	this.depth = [ 0x1000, -1, space, -1 ]
 	for (var chnum in this.children[this.current].child) {
 		var subnode = this.children[this.current].child[chnum];
@@ -1110,8 +1111,8 @@ forestnode.prototype.show = function(forest) {
 				Math.round((child.x - 0.2) *
 					forest.scale) + "px";
 			child.linkhead.style.top =
-				Math.round((child.y - height) *
-					forest.scale) + "px";
+				Math.round((child.y - (child.hidden ? 0 :
+						height)) * forest.scale) + "px";
 			child.linkhead.style.width =
 				Math.round(forest.scale * 0.4) + "px";
 		}
