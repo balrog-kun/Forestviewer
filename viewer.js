@@ -49,6 +49,16 @@ function treeviewer(element) {
 	this.popup = document.getElementById("generalinfo");
 
 	this.display.style.overflow = "hidden";
+
+	/* We overwrite user's settings.  This is because there's no way
+	 * to easily retrieve actual client area with padding on, in DOM,
+	 * without rewriting part of the rendering engine... with no padding,
+	 * clientWidth (in pixels) == style.width and children absolute
+	 * position are relative to clientLeft.  Not knowing that, we
+	 * would need to create another div inside this.display and make
+	 * sure it has no non-default style set with .style.cssText = ""
+	 * perhaps? */
+	this.display.style.padding = "0px";
 }
 
 var forests = [];
@@ -68,10 +78,8 @@ treeviewer.prototype.unload = function() {
 		/* Unref */
 		delete this["image"];
 		delete this["blackboard"];
-		if (this.ruler) {
+		if (this.ruler)
 			delete this["ruler"];
-			delete this["ruler_span"];
-		}
 	}
 
 	if (this.id in forests)
@@ -198,7 +206,7 @@ treeviewer.prototype.load = function(input) {
 
 	var scale = get_style(".nodecircle").style.width;
 	if (scale.ends_in("%"))
-		this.scale = this.display.offsetWidth * parseInt(scale) * 0.01;
+		this.scale = this.display.clientWidth * parseInt(scale) * 0.01;
 	else
 		this.scale = parseInt(scale);
 	this.nodeheight = 50.0 / this.scale;
@@ -239,15 +247,17 @@ treeviewer.prototype.load = function(input) {
 	if (!this.fixed_height)
 		this.display.style.height = (this.html_height +
 				this.rulerheight) + "px";
-	this.visibleheight = this.display.offsetHeight - this.rulerheight;
+	this.visibleheight = this.display.clientHeight - this.rulerheight;
 	if (this.ruler)
 		this.ruler.style.top = this.visibleheight + "px";
+	/* Note ruler must have no margin and blackboard must have no
+	 * margin padding or border for that to work. */
 
 	if (this.variablewidth) {
 		for (var i = this.startnode.from; i <= this.startnode.to; i ++)
 			this.columns[i] = 0;
 		if (!("horiz_space" in this))
-			this.horiz_space = 0.02;
+			this.horiz_space = 10;
 		this.startnode.relayout(this);
 		/* TODO: only until relayout learns setting x1 */
 		this.startnode.place(0, this);
@@ -257,8 +267,8 @@ treeviewer.prototype.load = function(input) {
 	}
 
 	/* Center */
-	if (this.html_width < this.display.offsetWidth) {
-		this.html_left = (this.display.offsetWidth -
+	if (this.html_width < this.display.clientWidth) {
+		this.html_left = (this.display.clientWidth -
 				this.html_width) / 2;
 		this.update_viewbox(0);
 	}
@@ -407,12 +417,14 @@ treeviewer.prototype.popup_show = function(style, x, y) {
 	if (x == null)
 		x = this.display.offsetLeft + "px";
 	else
-		x = Math.round(this.display.offsetLeft +
+		x = Math.round(this.display.offserLeft +
+				this.display.clientLeft +
 				this.html_left + x * this.scale) + "px";
 	if (y == null)
 		y = "30%"
 	else
 		y = Math.round(this.display.offsetTop +
+				this.display.clientTop +
 				this.html_top + y * this.scale) + "px";
 
 	this.popup.style.position = "absolute";
@@ -490,13 +502,13 @@ treeviewer.prototype.up = function(evt) {
 	this.html_left += dx;
 	this.html_top += dy;
 
-	if (this.html_left < this.display.offsetWidth - this.html_width)
-		this.html_left = this.display.offsetWidth - this.html_width;
+	if (this.html_left < this.display.clientWidth - this.html_width)
+		this.html_left = this.display.clientWidth - this.html_width;
 	if (this.html_top < this.visibleheight - this.html_height)
 		this.html_top = this.visibleheight - this.html_height;
 
-	if (this.html_width < this.display.offsetWidth)
-		this.html_left = (this.display.offsetWidth -
+	if (this.html_width < this.display.clientWidth)
+		this.html_left = (this.display.clientWidth -
 				this.html_width) / 2;
 	else if (this.html_left > 0)
 		this.html_left = 0;
@@ -521,13 +533,13 @@ treeviewer.prototype.move = function(evt) {
 	x = this.html_left + x - this.down_x;
 	y = this.html_top + y - this.down_y;
 
-	if (x < this.display.offsetWidth - this.html_width)
-		x = this.display.offsetWidth - this.html_width;
+	if (x < this.display.clientWidth - this.html_width)
+		x = this.display.clientWidth - this.html_width;
 	if (y < this.visibleheight - this.html_height)
 		y = this.visibleheight - this.html_height;
 
-	if (this.html_width < this.display.offsetWidth)
-		x = (this.display.offsetWidth - this.html_width) / 2;
+	if (this.html_width < this.display.clientWidth)
+		x = (this.display.clientWidth - this.html_width) / 2;
 	else if (x > 0)
 		x = 0;
 	if (y > 0)
@@ -656,8 +668,15 @@ forestnode.prototype.place = function(y, forest) {
 
 	this.x1 = (forest.columns[this.from] + forest.columns[this.to]) * 0.5;
 	this.y1 = y * forest.nodeheight + height * 0.5;
-	if (this.hidden)
-		this.y1 -= height;
+	if (this.hidden) {
+		if (this.terminal)
+			/* Hidden terminals are at ruler cells */
+			this.y1 = forest.nodeheight *
+				(forest.startnode.depth[1] +
+					forest.startnode.depth[3] * 0.5);
+		else
+			this.y1 -= height;
+	}
 
 	if (this.leaf)
 		return;
@@ -670,30 +689,32 @@ forestnode.prototype.place = function(y, forest) {
 }
 
 /* A smarter version of this could have different width spaces between
- * columents, basically there would be a left x and right x value for
- * every column and some smarter logic.. */
+ * columns, basically there would be a left x and right x value for
+ * every column and some smarter logic.. (various possible things to do
+ * there.  */
 forestnode.prototype.relayout = function(forest) {
-	if (!this.leaf) //// TODO: send veritto a postcard
+	if (!this.leaf)
 		/* Note this assumes left-to-right order */
 		for (var chnum in this.children[this.current].child)
 			this.children[this.current].child[chnum].relayout(
 					forest);
 
-	if (!this.elem || this.hidden)
+	if (!this.elem && !this.ruler)
 		return;
 
 	var subwidth = forest.columns[this.to] - forest.columns[this.from];
-	var width = this.elem.offsetWidth * 1.0 / forest.scale;
+	var width = this.elem ? this.elem.offsetWidth : 0;
 	if (this.ruler) {
-		var rwidth = this.ruler_span.offsetWidth * 1.0 / forest.scale;
+		var rwidth = this.ruler_span.offsetWidth;
 		if (rwidth > width)
 			width = rwidth;
 	}
-	width += forest.horiz_space;
+	width += forest.horiz_space; /* TODO: should use a css property */
+	width = width * 1.0 / forest.scale;
 
 	if (subwidth >= width)
 		return;
-	if (subwidth < 0.1) {
+	if (subwidth < 0.001) {
 		forest.columns[this.to] = forest.columns[this.from] + width;
 		return;
 	}
@@ -844,8 +865,8 @@ forestnode.prototype.popup_fill = function(forest) {
 
 forestnode.prototype.show_ruler = function(forest) {
 	if (this.leaf) {
-		var maxwidth = forest.columns[this.to] -
-				forest.columns[this.from];
+		var left = Math.round(forest.columns[this.from] * forest.scale);
+		var right = Math.round(forest.columns[this.to] * forest.scale);
 		if (!this.ruler) {
 			function node_orth(node) {
 				if (node.terminal)
@@ -867,17 +888,18 @@ forestnode.prototype.show_ruler = function(forest) {
 			this.ruler.style.position = "absolute";
 
 			this.ruler_span = document.createElement("span");
-			this.ruler_span.innerHTML =
+			if (forest.helper.update_ruler_info)
+				forest.helper.update_ruler_info(this);
+			else
+				this.ruler_span.innerHTML =
 					node_orth(this).to_xml_safe();
 
 			this.ruler.appendChild(this.ruler_span);
 			forest.ruler.appendChild(this.ruler);
 		}
 
-		this.ruler.style.left = Math.round((this.x - maxwidth * 0.5) *
-				forest.scale) + "px";
-		this.ruler.style.width = Math.round(maxwidth *
-				forest.scale) + "px";
+		this.ruler.style.left = left + "px";
+		this.ruler.style.width = (right - left) + "px";
 
 		return;
 	}
@@ -1059,7 +1081,6 @@ forestnode.prototype.show = function(forest) {
 			child.link.setAttributeNS(null, "stroke",
 					forest.nodebgcolour);
 
-
 			forest.image.appendChild(child.link);
 
 			if (chnum == head) {
@@ -1111,8 +1132,8 @@ forestnode.prototype.show = function(forest) {
 				Math.round((child.x - 0.2) *
 					forest.scale) + "px";
 			child.linkhead.style.top =
-				Math.round((child.y - (child.hidden ? 0 :
-						height)) * forest.scale) + "px";
+				Math.round((child.y - height) *
+					forest.scale) + "px";
 			child.linkhead.style.width =
 				Math.round(forest.scale * 0.4) + "px";
 		}
@@ -1150,6 +1171,7 @@ forestnode.prototype.hide = function(forest) {
 	if (this.ruler) {
 		forest.ruler.removeChild(this.ruler);
 		delete this["ruler"];
+		delete this["ruler_span"];
 	}
 
 	if (this.terminal)
@@ -1195,6 +1217,8 @@ forestnode.prototype.wheel = function(evt, forest) {
 	this.current = newsubtree;
 	this.animating = 1;
 
+	for (var i = forest.startnode.from; i <= forest.startnode.to; i ++)
+		forest.columns[i] = 0;
 	forest.startnode.update_depth();
 	forest.startnode.place(0, forest);
 	forest.startnode.relayout(forest); /* TODO: needs to be animated */
