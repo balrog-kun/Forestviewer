@@ -642,7 +642,7 @@ forestnode.prototype.update_depth = function() {
 	var space = (this.hidden ? 0 : 0.5) + this.space;
 	if (this.leaf) {
 		if (this.incomplete)
-			space += 0.5;
+			space += 0.6;
 		this.depth = [ space, space, space, 0 ];
 		return;
 	}
@@ -908,7 +908,7 @@ forestnode.prototype.show_ruler = function(forest) {
 		this.children[this.current].child[chnum].show_ruler(forest);
 }
 
-forestnode.prototype.show = function(forest) {
+forestnode.prototype.show_default = function(forest) {
 	/* Note: all the constants in this function are arbitrary numbers
 	 * taken out of thin air.  Change them to try to improve the
 	 * tree's appearance.  */
@@ -1143,6 +1143,172 @@ forestnode.prototype.show = function(forest) {
 		xs += 1.0;
 	}
 }
+forestnode.prototype.show = forestnode.prototype.show_default;
+
+forestnode.prototype.show_simple = function(forest) {
+	/* Note: all the constants in this function are arbitrary numbers
+	 * taken out of thin air.  Change them to try to improve the
+	 * tree's appearance.  */
+	var maxwidth = forest.columns[this.to] - forest.columns[this.from];
+	var width = maxwidth * 0.9;
+	if (width < 0.9)
+		width = 0.9;
+	var height = forest.nodeheight * 0.5;
+
+	if (!this.graph && !this.hidden) {
+		this.graph = document.createElementNS(forest.graph_ns,
+				"ellipse");
+		this.graph.setAttributeNS(null, "stroke-width", 0);
+		this.graph.setAttributeNS(null, "stroke", "black");
+		this.graph.setAttributeNS(null, "fill", "none");
+
+		forest.image.appendChild(this.graph);
+	}
+	if (this.graph) {
+		this.graph.setAttributeNS(null, "cx", this.x);
+		this.graph.setAttributeNS(null, "cy", this.y);
+		this.graph.setAttributeNS(null, "rx", width * 0.5);
+		this.graph.setAttributeNS(null, "ry", height * 0.5);
+	}
+
+	if (!this.info && !this.hidden) {
+		this.info = document.createElement("div");
+		this.info.className = "nodelabel";
+		this.info.style.position = "absolute";
+
+		var this_obj = this;
+		var onafter = function() {
+			this_obj.popup_timer = null;
+			this_obj.popup_fill(forest);
+
+			forest.popup_show(this_obj.terminal ? "terminal" :
+					"nonterminal", this_obj.x, this_obj.y);
+		}
+		var onover = function(evt) {
+			forest.over = this_obj;
+			if (this.moving)
+				return;
+
+			forest.timeout = onafter;
+			this_obj.popup_timer = setTimeout(onafter, 1000);
+		}
+		var onout = function(evt) {
+			forest.over = null;
+			if (!this_obj.popup_timer)
+				return;
+
+			clearTimeout(this_obj.popup_timer);
+			this_obj.popup_timer = null;
+		}
+		var onwheel = function(evt) {
+			this_obj.wheel(evt, forest);
+		}
+		if (forest.helper.update_node_info)
+			forest.helper.update_node_info(this, onover, onout,
+				onwheel, function() {
+					forest.over = null;
+					forest.popup_hide();
+				});
+		else
+			this.update_info(onover, onout, onwheel);
+
+		forest.blackboard.appendChild(this.info);
+	}
+	if (this.info) {
+		this.info.style.left =
+			Math.round((this.x - maxwidth * 0.5) *
+				forest.scale) + "px";
+		this.info.style.top =
+			Math.round((this.y - height * 0.3) *
+				forest.scale) + "px";
+		this.info.style.width =
+			Math.round(maxwidth * forest.scale) + "px";
+		this.info.style.height =
+			Math.round(forest.nodeheight * (1 + this.space)
+					* forest.scale) + "px";
+		if (this.opacity)
+			this.info.style.opacity = this.opacity;
+	}
+
+	if (this.leaf) {
+		if (this.incomplete && !this.decoration) {
+			this.decoration = new Array();
+			for (var i = 0; i < 6; i ++) {
+				var deco = document.createElementNS(
+						forest.graph_ns, "line");
+
+				deco.setAttributeNS(null, "fill", "none");
+				deco.setAttributeNS(null, "stroke",
+						forest.nodebgcolour);
+
+				forest.image.appendChild(deco);
+				this.decoration.push(deco);
+			}
+		}
+		if (this.decoration) {
+			var y = this.y + height * 0.8;
+			for (var i = 0; i < 6; i ++) {
+				var w = 0.05 / (i + 1);
+				var x = width * (0.2 + 0.035 * i);
+
+				y += w * 0.5;
+				var deco = this.decoration[i];
+				deco.setAttributeNS(null, "stroke-width", w);
+				deco.setAttributeNS(null, "x1", this.x - x);
+				deco.setAttributeNS(null, "y1", y);
+				deco.setAttributeNS(null, "x2", this.x + x);
+				deco.setAttributeNS(null, "y2", y);
+				y += w * 0.5 + 0.015;
+			}
+		}
+		return;
+	}
+
+	var midy = (this.children[this.current].child[0].y + this.y) * 0.5;
+	var head = this.children[this.current].head != undefined ?
+			this.children[this.current].head : -1;
+	for (var chnum in this.children[this.current].child) {
+		var child = this.children[this.current].child[chnum];
+		child.show(forest);
+
+		if (!child.link) {
+			child.link = document.createElementNS(forest.graph_ns,
+					"path");
+			child.link.setAttributeNS(null, "stroke-width", 0.016);
+			child.link.setAttributeNS(null, "fill", "none");
+			child.link.setAttributeNS(null, "stroke",
+					forest.nodebgcolour);
+
+			forest.image.appendChild(child.link);
+
+			if (chnum == head) {
+				child.linkhead = document.createElement("div");
+				child.linkhead.className = "head";
+				child.linkhead.style.position = "absolute";
+				child.linkhead.innerHTML = "&#9660;";
+				forest.blackboard.appendChild(child.linkhead);
+			}
+		}
+
+		child.link.setAttributeNS(null, "d",
+			"M" + this.x + "," + this.y +
+			" V" + midy +
+			" H" + child.x +
+			" V" + child.y);
+
+		if (child.linkhead) {
+			child.linkhead.style.left =
+				Math.round((child.x - 0.2) *
+					forest.scale) + "px";
+			child.linkhead.style.top =
+				Math.round((child.y - height) *
+					forest.scale) + "px";
+			child.linkhead.style.width =
+				Math.round(forest.scale * 0.4) + "px";
+		}
+	}
+}
+forestnode.prototype.show = forestnode.prototype.show_simple;
 
 forestnode.prototype.hide = function(forest) {
 	if (this.graph) {
