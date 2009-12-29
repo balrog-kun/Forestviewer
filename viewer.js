@@ -300,6 +300,14 @@ treeviewer.prototype.show = function() {
 	if (this.ruler)
 		this.startnode.show_ruler(this); /* TODO: only when needed! */
 	this.startnode.show(this);
+
+	if (!this.fixed_height && this.rulerheight) {
+		this.display.style.height = (this.html_height +
+				this.rulerheight) + "px";
+		this.visibleheight = this.display.clientHeight -
+			this.rulerheight;
+		this.ruler.style.top = this.visibleheight + "px";
+	}
 }
 
 treeviewer.prototype.anim_update = function() {
@@ -991,6 +999,9 @@ forestnode.prototype.show_default = function(forest) {
 					* forest.scale) + "px";
 		if (this.opacity)
 			this.info.style.opacity = this.opacity;
+
+		if (forest.helper.update_node_pos)
+			forest.helper.update_node_pos(this, forest);
 	}
 
 	if (this.leaf) {
@@ -1326,6 +1337,12 @@ forestnode.prototype.hide = function(forest) {
 		}
 	}
 
+	if (this.decoration) {
+		for (var i in this.decoration)
+			forest.image.removeChild(this.decoration[i]);
+		delete this["decoration"];
+	}
+
 	if (this.info) {
 		forest.blackboard.removeChild(this.info);
 		delete this["elem"];
@@ -1340,7 +1357,7 @@ forestnode.prototype.hide = function(forest) {
 		delete this["ruler_span"];
 	}
 
-	if (this.terminal)
+	if (this.leaf)
 		return;
 
 	for (var chnum in this.children[this.current].child)
@@ -1383,11 +1400,23 @@ forestnode.prototype.wheel = function(evt, forest) {
 	this.current = newsubtree;
 	this.animating = 1;
 
-	for (var i = forest.startnode.from; i <= forest.startnode.to; i ++)
-		forest.columns[i] = 0;
 	forest.startnode.update_depth();
 	forest.startnode.place(0, forest);
-	forest.startnode.relayout(forest); /* TODO: needs to be animated */
+	if (forest.variablewidth) {
+		forest.columns[forest.startnode.from] = 0;
+		for (var i = forest.startnode.from + 1;
+				i <= forest.startnode.to; i ++)
+			forest.columns[i] = forest.columns[i - 1] +
+					forest.widths[i - 1];
+		forest.show();
+
+		/* TODO: needs to be animated */
+		for (var i = forest.startnode.from; i <= forest.startnode.to;
+				i ++)
+			forest.columns[i] = 0;
+		forest.startnode.relayout(forest);
+		forest.startnode.place(0, forest);
+	}
 
 	function node_update(node) {
 		node.x = node.x1;
