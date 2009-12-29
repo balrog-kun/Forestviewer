@@ -1278,6 +1278,7 @@ forestnode.prototype.show_simple = function(forest) {
 	var midy = (this.children[this.current].child[0].y + this.y) * 0.5;
 	var head = this.children[this.current].head != undefined ?
 			this.children[this.current].head : -1;
+	var headlink = null;
 	for (var chnum in this.children[this.current].child) {
 		var child = this.children[this.current].child[chnum];
 		child.show(forest);
@@ -1293,6 +1294,18 @@ forestnode.prototype.show_simple = function(forest) {
 			forest.image.appendChild(child.link);
 
 			if (chnum == head) {
+				child.headlink = document.createElementNS(
+						forest.graph_ns, "path");
+				child.headlink.setAttributeNS(null,
+						"stroke-width", 0.04);
+				child.headlink.setAttributeNS(null,
+						"stroke-dasharray", "0.1,0.1");
+				child.headlink.setAttributeNS(null,
+						"fill", "none");
+				child.headlink.setAttributeNS(null,
+						"stroke", "red");
+				headlink = child.headlink;
+
 				child.linkhead = document.createElement("div");
 				child.linkhead.className = "head";
 				child.linkhead.style.position = "absolute";
@@ -1316,8 +1329,17 @@ forestnode.prototype.show_simple = function(forest) {
 					forest.scale) + "px";
 			child.linkhead.style.width =
 				Math.round(forest.scale * 0.4) + "px";
+
+			child.headlink.setAttributeNS(null, "d",
+				"M" + this.x + "," + this.y +
+				" V" + midy +
+				" H" + child.x +
+				" V" + child.y);
 		}
 	}
+	/* Must be added last to stay on top */
+	if (headlink != null)
+		forest.image.appendChild(headlink);
 }
 forestnode.prototype.show = forestnode.prototype.show_simple;
 
@@ -1334,6 +1356,8 @@ forestnode.prototype.hide = function(forest) {
 		if (this.linkhead) {
 			forest.blackboard.removeChild(this.linkhead);
 			delete this["linkhead"];
+			forest.image.removeChild(this.headlink);
+			delete this["headlink"];
 		}
 	}
 
