@@ -1165,7 +1165,6 @@ forestnode.prototype.show_default = function(forest) {
 		xs += 1.0;
 	}
 }
-forestnode.prototype.show = forestnode.prototype.show_default;
 
 forestnode.prototype.show_simple = function(forest) {
 	/* Note: all the constants in this function are arbitrary numbers
@@ -1356,7 +1355,17 @@ forestnode.prototype.show_simple = function(forest) {
 	if (headlink != null)
 		forest.image.appendChild(headlink);
 }
-forestnode.prototype.show = forestnode.prototype.show_simple;
+
+forestnode.prototype.set_style = function(forest) {
+	var style = forest.style;
+
+	if (style == undefined || !(("show_" + style) in forestnode.prototype))
+		style = "default";
+
+	forestnode.prototype.show = forestnode.prototype["show_" + style];
+	this.show(forest);
+}
+forestnode.prototype.show = forestnode.prototype.set_style;
 
 forestnode.prototype.hide = function(forest) {
 	if (this.graph) {
