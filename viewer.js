@@ -1319,12 +1319,12 @@ forestnode.prototype.show_simple = function(forest) {
 						"stroke", "red");
 				headlink = child.headlink;
 
-				child.linkhead = document.createElement("div");
+/*				child.linkhead = document.createElement("div");
 				child.linkhead.className = "head";
 				child.linkhead.style.position = "absolute";
 				child.linkhead.innerHTML = "&#9660;";
 				forest.blackboard.appendChild(child.linkhead);
-			}
+*/			}
 		}
 
 		child.link.setAttributeNS(null, "d",
@@ -1342,7 +1342,9 @@ forestnode.prototype.show_simple = function(forest) {
 					forest.scale) + "px";
 			child.linkhead.style.width =
 				Math.round(forest.scale * 0.4) + "px";
+		}
 
+		if (child.headlink) {
 			child.headlink.setAttributeNS(null, "d",
 				"M" + this.x + "," + this.y +
 				" V" + midy +
@@ -1369,6 +1371,8 @@ forestnode.prototype.hide = function(forest) {
 		if (this.linkhead) {
 			forest.blackboard.removeChild(this.linkhead);
 			delete this["linkhead"];
+		}
+		if (this.headlink) {
 			forest.image.removeChild(this.headlink);
 			delete this["headlink"];
 		}
