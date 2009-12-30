@@ -173,6 +173,7 @@ treeviewer.prototype.load = function(input) {
 
 		if (!this.startnode)
 			throw "no start nodes present";
+		this.nocopy = forest.nocopy;
 		this.startnode.set_default_tree(this);
 	} catch (e) {
 		this.display.innerHTML = "Can't parse: " + e;
@@ -259,6 +260,7 @@ treeviewer.prototype.load = function(input) {
 		if (!("horiz_space" in this))
 			this.horiz_space = 10;
 		this.startnode.relayout(this);
+		this.startnode.update_depth();
 		/* TODO: only until relayout learns setting x1 */
 		this.startnode.place(0, this);
 		this.step = 100;
@@ -629,7 +631,7 @@ forestnode.prototype.set_default_tree = function(forest) {
 
 	for (var rulenum in this.children) {
 		/* Note: could convert node.children to a rule => child
-		 * dictionary.  */
+		 * dictionary?  */
 		if (this.children[rulenum].child.nid)
 			this.children[rulenum].child =
 				[ this.children[rulenum].child ];
@@ -640,6 +642,8 @@ forestnode.prototype.set_default_tree = function(forest) {
 				throw "Referred node " + nid + " not found";
 
 			var subnode = forest.nodes[nid];
+			if (forest.nocopy && !subnode.copy)
+				continue;
 			this.children[rulenum].child[chnum] = subnode;
 			subnode.set_default_tree(forest);
 		}
@@ -647,7 +651,8 @@ forestnode.prototype.set_default_tree = function(forest) {
 }
 
 forestnode.prototype.update_depth = function() {
-	var space = (this.hidden ? 0 : 0.5) + this.space;
+	var space = (this.hidden ? 0 : this.elem_space ?
+			this.elem_space : 0.5) + this.space;
 	if (this.leaf) {
 		if (this.incomplete)
 			space += 0.6;
@@ -719,6 +724,10 @@ forestnode.prototype.relayout = function(forest) {
 	}
 	width += forest.horiz_space; /* TODO: should use a css property */
 	width = width * 1.0 / forest.scale;
+
+	if (this.elem && this.elem_space == undefined)
+		this.elem_space = this.elem.offsetHeight / forest.scale /
+			forest.nodeheight;
 
 	if (subwidth >= width)
 		return;
@@ -995,8 +1004,9 @@ forestnode.prototype.show_default = function(forest) {
 		this.info.style.width =
 			Math.round(maxwidth * forest.scale) + "px";
 		this.info.style.height =
-			Math.round(forest.nodeheight * (1 + this.space)
-					* forest.scale) + "px";
+			Math.round(forest.nodeheight * ((this.elem_space ?
+						this.elem_space + 0.5 : 1) +
+					this.space) * forest.scale) + "px";
 		if (this.opacity)
 			this.info.style.opacity = this.opacity;
 
@@ -1008,7 +1018,8 @@ forestnode.prototype.show_default = function(forest) {
 		/* TODO: set position */
 		if (this.incomplete && !this.decoration) {
 			this.decoration = new Array();
-			var y = this.y + height * 0.6;
+			var y = this.y + (this.elem_space ? this.elem_space +
+					0.1 : 0.3) * forest.nodeheight;
 			for (var i = 0; i < 6; i ++) {
 				var w = 0.05 / (i + 1);
 				var x = width * (0.2 + 0.035 * i);
@@ -1235,8 +1246,9 @@ forestnode.prototype.show_simple = function(forest) {
 		this.info.style.width =
 			Math.round(maxwidth * forest.scale) + "px";
 		this.info.style.height =
-			Math.round(forest.nodeheight * (1 + this.space)
-					* forest.scale) + "px";
+			Math.round(forest.nodeheight * ((this.elem_space ?
+						this.elem_space + 0.5 : 1) +
+					this.space) * forest.scale) + "px";
 		if (this.opacity)
 			this.info.style.opacity = this.opacity;
 	}
@@ -1257,7 +1269,8 @@ forestnode.prototype.show_simple = function(forest) {
 			}
 		}
 		if (this.decoration) {
-			var y = this.y + height * 0.8;
+			var y = this.y + (this.elem_space ? this.elem_space -
+					0.1 : 0.4) * forest.nodeheight;
 			for (var i = 0; i < 6; i ++) {
 				var w = 0.05 / (i + 1);
 				var x = width * (0.2 + 0.035 * i);
@@ -1426,21 +1439,6 @@ forestnode.prototype.wheel = function(evt, forest) {
 
 	forest.startnode.update_depth();
 	forest.startnode.place(0, forest);
-	if (forest.variablewidth) {
-		forest.columns[forest.startnode.from] = 0;
-		for (var i = forest.startnode.from + 1;
-				i <= forest.startnode.to; i ++)
-			forest.columns[i] = forest.columns[i - 1] +
-					forest.widths[i - 1];
-		forest.show();
-
-		/* TODO: needs to be animated */
-		for (var i = forest.startnode.from; i <= forest.startnode.to;
-				i ++)
-			forest.columns[i] = 0;
-		forest.startnode.relayout(forest);
-		forest.startnode.place(0, forest);
-	}
 
 	function node_update(node) {
 		node.x = node.x1;
@@ -1455,8 +1453,27 @@ forestnode.prototype.wheel = function(evt, forest) {
 	}
 	node_update(this);
 
+	if (forest.variablewidth) {
+		forest.columns[forest.startnode.from] = 0;
+		for (var i = forest.startnode.from + 1;
+				i <= forest.startnode.to; i ++)
+			forest.columns[i] = forest.columns[i - 1] +
+					forest.widths[i - 1];
+	}
+
 	forest.anim_start();
 	forest.show();
+
+	if (forest.variablewidth) {
+		/* TODO: needs to be animated */
+		for (var i = forest.startnode.from; i <= forest.startnode.to;
+				i ++)
+			forest.columns[i] = 0;
+		forest.startnode.relayout(forest);
+		forest.startnode.place(0, forest);
+		forest.anim_update();
+		forest.show();
+	}
 }
 
 /*
