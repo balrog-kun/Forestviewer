@@ -277,6 +277,9 @@ treeviewer.prototype.load = function(input) {
 
 	this.id = forest_id ++;
 	forests[this.id] = this;
+
+	if (this.helper.after_loaded)
+		this.helper.after_loaded(this);
 }
 
 treeviewer.prototype.show = function() {
