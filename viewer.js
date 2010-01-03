@@ -1293,7 +1293,26 @@ forestnode.prototype.show_simple = function(forest) {
 	var midy = (this.children[this.current].child[0].y + this.y) * 0.5;
 	var head = this.children[this.current].head != undefined ?
 			this.children[this.current].head : -1;
-	var headlink = null;
+	if (head != -1 && !this.children[this.current].child[head].headlink) {
+		var child = this.children[this.current].child[head];
+		child.headlink = document.createElementNS(
+				forest.graph_ns, "path");
+		child.headlink.setAttributeNS(null, "stroke-width", 0.15);
+/*		child.headlink.setAttributeNS(null,
+				"stroke-dasharray", "0.1,0.1"); */
+		child.headlink.setAttributeNS(null, "fill", "none");
+		child.headlink.setAttributeNS(null, "stroke", "#cccccc");
+		child.headlink.setAttributeNS(null, "stroke-linejoin", "round");
+
+/*		child.linkhead = document.createElement("div");
+		child.linkhead.className = "head";
+		child.linkhead.style.position = "absolute";
+		child.linkhead.innerHTML = "&#9660;";
+		forest.blackboard.appendChild(child.linkhead); */
+
+		/* Must be added first to stay at the bottom */
+		forest.image.appendChild(child.headlink);
+	}
 	for (var chnum in this.children[this.current].child) {
 		var child = this.children[this.current].child[chnum];
 		child.show(forest);
@@ -1307,26 +1326,6 @@ forestnode.prototype.show_simple = function(forest) {
 					forest.nodebgcolour);
 
 			forest.image.appendChild(child.link);
-
-			if (chnum == head) {
-				child.headlink = document.createElementNS(
-						forest.graph_ns, "path");
-				child.headlink.setAttributeNS(null,
-						"stroke-width", 0.04);
-				child.headlink.setAttributeNS(null,
-						"stroke-dasharray", "0.1,0.1");
-				child.headlink.setAttributeNS(null,
-						"fill", "none");
-				child.headlink.setAttributeNS(null,
-						"stroke", "red");
-				headlink = child.headlink;
-
-/*				child.linkhead = document.createElement("div");
-				child.linkhead.className = "head";
-				child.linkhead.style.position = "absolute";
-				child.linkhead.innerHTML = "&#9660;";
-				forest.blackboard.appendChild(child.linkhead);
-*/			}
 		}
 
 		child.link.setAttributeNS(null, "d",
@@ -1354,9 +1353,6 @@ forestnode.prototype.show_simple = function(forest) {
 				" V" + child.y);
 		}
 	}
-	/* Must be added last to stay on top */
-	if (headlink != null)
-		forest.image.appendChild(headlink);
 }
 
 forestnode.prototype.set_style = function(forest) {
