@@ -227,6 +227,54 @@ treeviewer.prototype.load = function(input) {
 	attach(document, "mousemove",
 			function(evt) { this_obj.move(evt); }, false);
 
+	var separators = "() ,:;[]";
+	var this_obj = this;
+	this.add_attr_spans = function(container, attr, value) {
+		var str = "";
+		var prev = -1;
+		var add = function(txt, re) {
+			str = "";
+
+			var span = document.createElement("span");
+			span.innerHTML = txt.to_xml_safe();
+
+			container.appendChild(span);
+
+			if (prev != -1 && prev != false)
+				return;
+
+			/* TODO: replace all chars with \\xXY ?
+			 * Note we can't use \\b because non-ASCII letters
+			 * are incorrectly treated as non-word characters.
+			 */
+			if (re[1])
+				re[1] = new RegExp("([\\[\\( ,:;]|^)" +
+						re[1].replace(".", "\\.") +
+						"([\\]\\[\\(\\) ,:;]|$)");
+			attach(span, "mouseover", function(evt) {
+						this_obj.highlight(re);
+						span.style.color = "white";
+					}, false);
+			attach(span, "mouseout", function(evt) {
+						this_obj.highlight([ "" ]);
+						span.style.color = "";
+					}, false);
+		}
+
+		if (value == undefined)
+			add(attr, [ attr, "" ], true);
+		else {
+			for (var c = 0; c < value.length; c ++) {
+				var sep = separators.indexOf(value[c]) > -1;
+				if (sep != prev && prev != -1)
+					add(str, [ attr, str ]);
+				prev = sep;
+				str += value[c];
+			}
+			add(str, [ attr, str ]);
+		}
+	}
+
 	this.html_left = 0;
 	this.html_top = 0;
 
@@ -825,51 +873,13 @@ var separators = "() ,:;[]";
 forestnode.prototype.popup_fill = function(forest) {
 	forest.popup.innerHTML = "";
 
-	var str = "";
-	var prev;
-	var add = function(txt, re) {
-		str = "";
-
-		var span = document.createElement("span");
-		span.innerHTML = txt.to_xml_safe();
-
-		if (prev == -1 || prev == false) {
-			/* TODO: replace all chars with \\xXY ?
-			 * Note we can't use \\b because non-ASCII letters
-			 * are incorrectly treated as non-word characters.
-			 */
-			if (re[1])
-				re[1] = new RegExp("([\\[\\( ,:;]|^)" +
-						re[1].replace(".", "\\.") +
-						"([\\]\\[\\(\\) ,:;]|$)");
-			attach(span, "mouseover", function(evt) {
-						forest.highlight(re);
-						span.style.color = "white";
-					}, false);
-			attach(span, "mouseout", function(evt) {
-						forest.highlight([ "" ]);
-						span.style.color = "black";
-					}, false);
-		}
-
-		forest.popup.appendChild(span);
-	}
 	for (var num in this.attrs_order) {
 		var name = this.attrs_order[num];
-		prev = -1;
-		add(name, [ name, "" ], true);
+
+		forest.add_attr_spans(forest.popup, name);
 		forest.popup.appendChild(document.createTextNode(": "));
 
-		var label = this.attrs[name];
-		for (var c = 0; c < label.length; c ++) {
-			var sep = separators.indexOf(label[c]) > -1;
-			if (sep != prev && prev != -1)
-				add(str, [ name, str ]);
-			prev = sep;
-			str += label[c];
-		}
-		add(str, [ name, str ]);
-
+		forest.add_attr_spans(forest.popup, name, this.attrs[name]);
 		forest.popup.appendChild(document.createElement("br"));
 	}
 
@@ -1258,7 +1268,8 @@ forestnode.prototype.show_simple = function(forest) {
 		}
 		if (forest.helper.update_node_info)
 			forest.helper.update_node_info(this, onover, onout,
-				onwheel, onswitch, function() {
+				onwheel, onswitch, forest.add_attr_spans,
+				function() {
 					forest.over = null;
 					forest.popup_hide();
 				});
