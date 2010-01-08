@@ -48,7 +48,11 @@ function treeviewer(element) {
 	this.general = document.getElementById("generalinfo");
 	this.popup = document.getElementById("generalinfo");
 
-	this.display.style.overflow = "hidden";
+	this.borderwidth = 0;
+	if (this.nativescroll)
+		this.display.style.overflow = "auto";
+	else
+		this.display.style.overflow = "hidden";
 
 	/* We overwrite user's settings.  This is because there's no way
 	 * to easily retrieve actual client area with padding on, in DOM,
@@ -215,7 +219,7 @@ treeviewer.prototype.load = function(input) {
 	this.nodebgcolour = get_style(".nodecircle").style.backgroundColor;
 
 	var this_obj = this;
-	attach(this.display, "mousedown",
+	attach(this.nativescroll ? this.blackboard : this.display, "mousedown",
 			function(evt) { this_obj.down(evt); }, true);
 	attach(document, "mouseup",
 			function(evt) { this_obj.up(evt); }, false);
@@ -245,10 +249,13 @@ treeviewer.prototype.load = function(input) {
 	/* TODO: must do this whenever this.display is resized
 	 * (must also adjust this.html_left, this.html_top) */
 	this.rulerheight = (this.ruler ? this.ruler.offsetHeight : 0);
-	if (!this.fixed_height)
+	if (!this.fixed_height) {
+		var voffset = this.display.offsetHeight -
+			this.display.clientHeight - this.borderwidth;
 		this.display.style.height = (this.html_height +
-				this.rulerheight) + "px";
-	this.visibleheight = this.display.clientHeight - this.rulerheight;
+				this.rulerheight + voffset) + "px";
+	}
+	this.visibleheight = this.display.scrollHeight - this.rulerheight;
 	if (this.ruler)
 		this.ruler.style.top = this.visibleheight + "px";
 	/* Note ruler must have no margin and blackboard must have no
@@ -307,8 +314,10 @@ treeviewer.prototype.show = function() {
 	this.startnode.show(this);
 
 	if (!this.fixed_height && this.rulerheight) {
+		var voffset = this.display.offsetHeight -
+			this.display.clientHeight - this.borderwidth;
 		this.display.style.height = (this.html_height +
-				this.rulerheight) + "px";
+				this.rulerheight + voffset) + "px";
 		this.visibleheight = this.display.clientHeight -
 			this.rulerheight;
 		this.ruler.style.top = this.visibleheight + "px";
@@ -494,6 +503,10 @@ treeviewer.prototype.down = function(evt) {
 
 	this.down_x = parseInt(evt.pageX);
 	this.down_y = parseInt(evt.pageY);
+	if (this.nativescroll) {
+		this.down_scrollx = this.display.scrollLeft;
+		this.down_scrolly = this.display.scrollTop;
+	}
 
 	this.moving = true;
 }
@@ -509,6 +522,12 @@ treeviewer.prototype.up = function(evt) {
 	if ((dx == 0 && dy > -2 && dy < 2) || (dy == 0 && dx > -2 && dx < 2)) {
 		if (this.pop && this.popup_on_init)
 			this.set_general_info(this.forest);
+		return;
+	}
+
+	if (this.nativescroll) {
+		this.display.scrollLeft = this.down_scrollx - dx;
+		this.display.scrollTop = this.down_scrolly - dy;
 		return;
 	}
 
@@ -542,6 +561,12 @@ treeviewer.prototype.move = function(evt) {
 
 	var x = parseInt(evt.pageX);
 	var y = parseInt(evt.pageY);
+
+	if (this.nativescroll) {
+		this.display.scrollLeft = this.down_scrollx - (x - this.down_x);
+		this.display.scrollTop = this.down_scrolly - (y - this.down_y);
+		return;
+	}
 
 	x = this.html_left + x - this.down_x;
 	y = this.html_top + y - this.down_y;
