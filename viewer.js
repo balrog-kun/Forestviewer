@@ -49,10 +49,6 @@ function treeviewer(element) {
 	this.popup = document.getElementById("generalinfo");
 
 	this.borderwidth = 0;
-	if (this.nativescroll)
-		this.display.style.overflow = "auto";
-	else
-		this.display.style.overflow = "hidden";
 
 	/* We overwrite user's settings.  This is because there's no way
 	 * to easily retrieve actual client area with padding on, in DOM,
@@ -99,6 +95,11 @@ treeviewer.prototype.unload = function() {
 }
 
 treeviewer.prototype.load = function(input) {
+	if (this.nativescroll) /* TODO: move to stylesheet? */
+		this.display.style.overflow = "auto";
+	else
+		this.display.style.overflow = "hidden";
+
 	if (!input.forest && input.packet && input.packet.name) {
 		var menu = "<h2>Packet " + input.packet.name.to_xml_safe() +
 			"</h2> contains:<br /><p>\n";
@@ -1252,9 +1253,12 @@ forestnode.prototype.show_simple = function(forest) {
 		var onwheel = function(evt) {
 			this_obj.wheel(evt, forest);
 		}
+		var onswitch = function(d) {
+			this_obj.switch_subtree(d, forest);
+		}
 		if (forest.helper.update_node_info)
 			forest.helper.update_node_info(this, onover, onout,
-				onwheel, function() {
+				onwheel, onswitch, function() {
 					forest.over = null;
 					forest.popup_hide();
 				});
@@ -1458,13 +1462,14 @@ forestnode.prototype.wheel = function(evt, forest) {
 	} else if (evt.detail)	/* Mozilla case. */
 		delta = -evt.detail / 3;
 
-	var newsubtree;
 	if (delta < 0 && this.current < this.children.length - 1)
-		newsubtree = this.current + 1;
+		this.switch_subtree(1, forest);
 	else if (delta > 0 && this.current)
-		newsubtree = this.current - 1;
-	else
-		return;
+		this.switch_subtree(-1, forest);
+}
+
+forestnode.prototype.switch_subtree = function(d, forest) {
+	var newsubtree = this.current + d;
 
 	forest.anim_update();
 	forest.anim_cancel();
