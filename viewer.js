@@ -339,11 +339,13 @@ treeviewer.prototype.load = function(input) {
 }
 
 treeviewer.prototype.show = function() {
+	this.treeheight = this.nodeheight *
+		(this.startnode.depth[1] + this.startnode.depth[3] * 0.5);
+
 	var svg_left = this.columns[this.startnode.from];
 	var svg_right = this.columns[this.startnode.to];
 	var svg_top = 0;
-	var svg_bottom = this.nodeheight *
-		(this.startnode.depth[1] + this.startnode.depth[3] * 0.5);
+	var svg_bottom = this.treeheight;
 
 	this.html_width = this.scale *
 		(this.columns[this.startnode.to] -
@@ -1308,9 +1310,22 @@ forestnode.prototype.show_simple = function(forest) {
 		if (this.decoration) {
 			var y = this.y + (this.elem_space ? this.elem_space -
 					0.1 : 0.4) * forest.nodeheight;
-			for (var i = 0; i < 6; i ++) {
-				var w = 0.05 / (i + 1);
-				var x = width * (0.2 + 0.035 * i);
+			var deco_height = 0.05;
+			var break_height = 0.015;
+			var max_height = forest.treeheight - y;
+			var h = 0;
+			for (var i = 0; i < this.decoration.length; i ++)
+				h += deco_height / (i + 1);
+			var maxh = max_height - break_height *
+				this.decoration.length;
+			if (h < maxh) {
+				var half = (maxh - h) * 0.5;
+				deco_height *= (h + half) / h;
+				break_height += half / this.decoration.length;
+			}
+			for (var i = 0; i < this.decoration.length; i ++) {
+				var w = deco_height / (i + 1);
+				var x = width * (0.2 + 0.04 * i);
 
 				y += w * 0.5;
 				var deco = this.decoration[i];
@@ -1319,7 +1334,7 @@ forestnode.prototype.show_simple = function(forest) {
 				deco.setAttributeNS(null, "y1", y);
 				deco.setAttributeNS(null, "x2", this.x + x);
 				deco.setAttributeNS(null, "y2", y);
-				y += w * 0.5 + 0.015;
+				y += w * 0.5 + break_height;
 			}
 		}
 		return;
