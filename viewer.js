@@ -491,13 +491,15 @@ treeviewer.prototype.popup_show = function(style, x, y) {
 		x = this.display.offsetLeft + "px";
 	else
 		x = Math.round(this.display.offsetLeft +
-				this.display.clientLeft +
+				this.display.clientLeft -
+				this.display.scrollLeft +
 				this.html_left + x * this.scale) + "px";
 	if (y == null)
 		y = "30%"
 	else
 		y = Math.round(this.display.offsetTop +
-				this.display.clientTop +
+				this.display.clientTop -
+				this.display.scrollTop +
 				this.html_top + y * this.scale) + "px";
 
 	this.popup.style.position = "absolute";
@@ -1340,11 +1342,17 @@ forestnode.prototype.show_simple = function(forest) {
 		return;
 	}
 
-	var midy = (this.children[this.current].child[0].y + this.y) * 0.5;
+	var ch = this.children[this.current].child;
+	var midy = forest.treeheight;
+	for (var chnum in ch)
+		if (ch[chnum].y < midy)
+			midy = ch[chnum].y;
+	midy = (midy + this.y) * 0.5;
+
 	var head = this.children[this.current].head != undefined ?
 			this.children[this.current].head : -1;
-	if (head != -1 && !this.children[this.current].child[head].headlink) {
-		var child = this.children[this.current].child[head];
+	if (head != -1 && !ch[head].headlink) {
+		var child = ch[head];
 		child.headlink = document.createElementNS(
 				forest.graph_ns, "path");
 		child.headlink.setAttributeNS(null, "stroke-width", 0.15);
@@ -1363,8 +1371,8 @@ forestnode.prototype.show_simple = function(forest) {
 		/* Must be added first to stay at the bottom */
 		forest.image.appendChild(child.headlink);
 	}
-	for (var chnum in this.children[this.current].child) {
-		var child = this.children[this.current].child[chnum];
+	for (var chnum in ch) {
+		var child = ch[chnum];
 		child.show(forest);
 
 		if (!child.link) {
