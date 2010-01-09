@@ -862,6 +862,17 @@ forestnode.prototype.highlight = function(re) {
 				match ? 0.05 : 0);
 	}
 
+	if (this.elem) {
+		var match = this.attrs[re[0]] && this.attrs[re[0]].match(re[1]);
+		if (match && !this.orig_class) {
+			this.orig_class = this.elem.className;
+			this.elem.className += " highlighted-node";
+		} else if (!match && this.orig_class) {
+			this.elem.className = this.orig_class;
+			delete this.orig_class;
+		}
+	}
+
 	if (this.leaf)
 		return;
 
@@ -1214,22 +1225,6 @@ forestnode.prototype.show_simple = function(forest) {
 	if (width < 0.9)
 		width = maxwidth;
 	var height = forest.nodeheight * 0.5;
-
-	if (!this.graph && !this.hidden) {
-		this.graph = document.createElementNS(forest.graph_ns,
-				"ellipse");
-		this.graph.setAttributeNS(null, "stroke-width", 0);
-		this.graph.setAttributeNS(null, "stroke", "black");
-		this.graph.setAttributeNS(null, "fill", "none");
-
-		forest.image.appendChild(this.graph);
-	}
-	if (this.graph) {
-		this.graph.setAttributeNS(null, "cx", this.x);
-		this.graph.setAttributeNS(null, "cy", this.y);
-		this.graph.setAttributeNS(null, "rx", width * 0.5);
-		this.graph.setAttributeNS(null, "ry", height * 0.5);
-	}
 
 	if (!this.info && !this.hidden) {
 		this.info = document.createElement("div");
