@@ -686,9 +686,9 @@ function forestnode(inputnode) {
 	if (!("space" in this))
 		this.space = 0.0;
 
-	if (this.terminal) {
+	if (this.terminal || this.leaf) {
 		this.leaf = true;
-		if (this.subtrees == 1)
+		if (!this.terminal || this.subtrees == 1)
 			return;
 
 		throw "Wrong subtrees number at a leaf " +
@@ -1516,7 +1516,7 @@ forestnode.prototype.switch_subtree = function(d, forest) {
 		node.y = node.y1;
 		if (!node.animating)
 			node.opacity = "0";
-		if (node.terminal)
+		if (node.leaf)
 			return;
 
 		for (var chnum in node.children[node.current].child)
