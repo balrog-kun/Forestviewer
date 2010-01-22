@@ -66,6 +66,9 @@ var forest_id = 0;
 treeviewer.prototype.unload = function() {
 	this.anim_cancel();
 
+	if (this.helper.before_unload)
+		this.helper.before_unload(this);
+
 	if (this.blackboard) {
 		this.blackboard.removeChild(this.image);
 		this.display.removeChild(this.blackboard);
@@ -149,6 +152,7 @@ treeviewer.prototype.load = function(input) {
 	/* Locate the start node */
 	this.startnode = null;
 	this.nodes = {};
+	this.copy = forest.copy;
 	if (!forest.startnode.label)
 		forest.startnode.label = forest.startnode["#text"];
 
@@ -178,7 +182,6 @@ treeviewer.prototype.load = function(input) {
 
 		if (!this.startnode)
 			throw "no start nodes present";
-		this.nocopy = forest.nocopy;
 		this.startnode.set_default_tree(this);
 	} catch (e) {
 		this.display.innerHTML = "Can't parse: " + e;
@@ -710,21 +713,32 @@ forestnode.prototype.set_default_tree = function(forest) {
 	if (!("current" in this))
 		this.current = 0;
 
-	for (var rulenum in this.children) {
+	if (this.leaf)
+		return;
+
+	var children = this.children;
+	if (forest.copy)
+		this.children = [];
+	for (var rulenum in children) {
+		var child = children[rulenum].child;
+		if (forest.copy)
+			this.children[rulenum] = {
+				head: children[rulenum].head,
+				rule: children[rulenum].rule,
+				"child": [] };
+
 		/* Note: could convert node.children to a rule => child
 		 * dictionary?  */
 		if (this.children[rulenum].child.nid)
 			this.children[rulenum].child =
 				[ this.children[rulenum].child ];
 
-		for (var chnum in this.children[rulenum].child) {
-			var nid = this.children[rulenum].child[chnum].nid;
+		for (var chnum in child) {
+			var nid = child[chnum].nid;
 			if (!(nid in forest.nodes))
 				throw "Referred node " + nid + " not found";
 
 			var subnode = forest.nodes[nid];
-			if (forest.nocopy && !subnode.copy)
-				continue;
 			this.children[rulenum].child[chnum] = subnode;
 			subnode.set_default_tree(forest);
 		}
