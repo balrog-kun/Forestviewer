@@ -723,7 +723,7 @@ forestnode.prototype.set_default_tree = function(forest) {
 		var child = children[rulenum].child;
 		if (forest.copy)
 			this.children[rulenum] = {
-				head: children[rulenum].head,
+				heads: children[rulenum].heads,
 				rule: children[rulenum].rule,
 				"child": [] };
 
@@ -1131,8 +1131,8 @@ forestnode.prototype.show_default = function(forest) {
 	else if (left == right &&
 		left + right == this.children[this.current].child.length)
 		xs += 0.5;
-	var head = this.children[this.current].head != undefined ?
-			this.children[this.current].head : -1;
+	var heads = this.children[this.current].heads != undefined ?
+			this.children[this.current].heads : [];
 	for (var chnum in this.children[this.current].child) {
 		var child = this.children[this.current].child[chnum];
 		child.show(forest);
@@ -1173,7 +1173,7 @@ forestnode.prototype.show_default = function(forest) {
 
 			forest.image.appendChild(child.link);
 
-			if (chnum == head) {
+			if (heads.indexOf(chnum) > -1) {
 				child.linkhead = document.createElement("div");
 				child.linkhead.className = "head";
 				child.linkhead.style.position = "absolute";
@@ -1363,10 +1363,11 @@ forestnode.prototype.show_simple = function(forest) {
 			midy = ch[chnum].y;
 	midy = (midy + this.y) * 0.5;
 
-	var head = this.children[this.current].head != undefined ?
-			this.children[this.current].head : -1;
-	if (head != -1 && !ch[head].headlink) {
+	for (head in this.children[this.current].heads) {
 		var child = ch[head];
+		if (child.headlink)
+			continue;
+
 		child.headlink = document.createElementNS(
 				forest.graph_ns, "path");
 		child.headlink.setAttributeNS(null, "stroke-width", 0.15);
