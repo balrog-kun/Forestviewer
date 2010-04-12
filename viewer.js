@@ -1363,8 +1363,8 @@ forestnode.prototype.show_simple = function(forest) {
 			midy = ch[chnum].y;
 	midy = (midy + this.y) * 0.5;
 
-	for (head in this.children[this.current].heads) {
-		var child = ch[head];
+	for (headnum in this.children[this.current].heads) {
+		var child = ch[this.children[this.current].heads[headnum]];
 		if (child.headlink)
 			continue;
 
