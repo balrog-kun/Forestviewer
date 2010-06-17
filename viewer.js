@@ -212,7 +212,10 @@ treeviewer.prototype.load = function(input) {
 		this.ruler.className = "ruler";
 		this.ruler.style.position = "absolute";
 	}
-
+    if (this.noblackboard) {
+        this.blackboard.style.display = "none";
+    }
+    
 	var scale = get_style(".nodecircle").style.width;
 	if (scale.ends_in("%"))
 		this.scale = this.display.clientWidth * parseInt(scale) * 0.01;
@@ -353,8 +356,13 @@ treeviewer.prototype.show = function() {
 	this.html_width = this.scale *
 		(this.columns[this.startnode.to] -
 		 this.columns[this.startnode.from]);
-	this.html_height = svg_bottom * this.scale;
 
+    if (this.noblackboard) {
+        this.html_height = 0;
+    } else {
+        this.html_height = svg_bottom * this.scale;
+    }
+    
 	this.image.style.width = Math.round(this.html_width) + "px";
 	this.image.style.height = Math.round(this.html_height) + "px";
 	this.update_viewbox(1);
@@ -482,8 +490,9 @@ treeviewer.prototype.update_viewbox = function(size, x, y) {
 	if (size) {
 		this.blackboard.style.width =
 			Math.round(this.html_width) + "px";
-		this.blackboard.style.height =
-			Math.round(this.html_height) + "px";
+		if (!this.noblackboard)
+            this.blackboard.style.height =
+                Math.round(this.html_height) + "px";
 		if (this.ruler)
 			this.ruler.style.width = this.blackboard.style.width;
 	}
