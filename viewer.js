@@ -1,12 +1,190 @@
 /*
- * (C) 2009 Andrzej Zaborowski <balrogg@gmail.com>
- * Code under GNU Public License version 2 or version 3 at your option.
+ * Various forest viewer widgets and utilities.
+ *
+ * Copyright (C) 2009  Andrzej Zaborowski
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License version 3
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
+
+/*
+ * Forest utilities
+ *
+ * Forest is generally defined as a set / list of trees.  For forests
+ * that are results of syntactic analysis, this definition is broader
+ * than necessary.
+ *
+ * Here, a forest is a special kind of graph similar to a tree although
+ * slightly different.  Like a tree, it is a directed acyclic graph
+ * with a special element called the root.  Instead of a single list
+ * of children, each non-leaf node can have many lists of children,
+ * specifically a non-empty set of lists of children.  No node can appear
+ * more than once on one list, but it can appear on multiple lists of
+ * chilren a single parent node, or of different parents.
+ *
+ * Each node has a start and end corresponding to the phrase's beginning
+ * and ending in the parsed text.  The start-end intervals of nodes
+ * on any children list sum up to the parent's start-end interval and
+ * can't overlap between the children on one list.
+ *
+ * Nodes have multiple lists of children where there is ambiguity in
+ * the derivation of the phrase because more than one grammar rule
+ * could be applied.  Nodes have multiple parents where the same
+ * derivation of a subphrase is used in different possible derivations
+ * of a higher-level construct.  A leaf always represents a terminal
+ * node and a non-terminal symbol is represented by an internal node.
+ */
+function forest(nodes, root) {
+	var q = [ root ];
+
+	var ndmap = {};
+	for (var nid in nodes)
+		if ("nid" in nodes[nid])
+			ndmap[nodes[nid].nid] = nodes[nid];
+		else
+			ndmap[nid] = nodes[nid];
+
+	this.nodes = {};
+
+	while (q.length) {
+		var nid = q.shift();
+		if (nid in this.nodes)
+			continue;
+		this.nodes[nid] = new forestnode(ndmap[nid], nid);
+
+		if (this.nodes[nid].terminal || this.nodes[nid].leaf)
+			continue;
+		for (var rnum in this.nodes[nid].children) {
+			var chlist = this.nodes[nid].children[rnum].child;
+			for (var chnum in chlist)
+				if (typeof(chlist[chnum]) == 'object')
+					q.push(chlist[chnum].nid);
+				else
+					q.push(chlist[chnum]);
+		}
+	}
+
+	this.root = this.nodes[root];
+
+	this.root.set_default_tree(this, {});
+}
+
+forest.prototype.get_depth = function() {
+	return this.root.get_depth();
+}
+
+function forestnode(inputnode, nid) {
+	this.nid = nid;
+
+	for (var prop in inputnode)
+		if (prop[0] != '#')
+			this[prop] = inputnode[prop];
+
+	if (!("attrs" in this))
+		this.attrs = this.nonterminal ? this.nonterminal :
+			(this.terminal ? this.terminal : {});
+	if (!("attrs_order" in this)) {
+		this.attrs_order = [];
+		for (var attr in this.attrs)
+			this.attrs_order.push(attr);
+	}
+
+	if (this.terminal && this.terminal.length)
+		this.terminal = this.terminal[0];
+
+	if (!("space" in this))
+		this.space = 0.0;
+
+	if (this.terminal || this.leaf) {
+		this.leaf = true;
+		if (!this.terminal || !('subtrees' in this) ||
+				this.subtrees == 1)
+			return;
+
+		throw "Wrong subtrees number at a leaf " +
+			this.label + " with nid " + this.nid;
+	}
+
+	if (!this.children)
+		throw "Non-leaf node with no children found: " +
+			this.label + ", nid " + this.nid;
+
+	if (this.children.child)
+		this.children = [ this.children ];
+	else if (typeof(this.children[0]) == "string" &&
+			(this.children.length & 1) == 0) {
+		var chld = this.children;
+		this.children = [];
+		for (var i = 0; i < chld.length; i += 2)
+			this.children.push({ rule: chld[i],
+					child: chld[i + 1] });
+	} else if (!this.children.length)
+		throw "Non-leaf with no children found: " +
+			this.label + ", nid " + this.nid;
+}
+
+forestnode.prototype.get_depth = function(nidmap) {
+	var max = 0;
+	var map = nidmap;
+
+	if (nidmap == null)
+		map = {};
+
+	if (!this.leaf) {
+		for (var chlistnum in this.children) {
+			var chlist = this.children[chlistnum].child;
+			for (var chnum in chlist) {
+				var chdepth;
+				if (chlist[chnum].nid in map)
+					chdepth = map[chlist[chnum].nid];
+				else
+					chdepth = chlist[chnum].get_depth(map);
+				if (chdepth > max)
+					max = chdepth;
+			}
+		}
+	}
+
+	return map[this.nid] = max + 1;
+}
+
+forestnode.prototype.get_min_depths = function() {
+	var q = [ this ];
+	var map = {};
+	map[this.nid] = 0;
+
+	while (q.length) {
+		var nd = q.shift();
+
+		for (var chlistnum in nd.children) {
+			var chlist = nd.children[chlistnum].child;
+			for (var chnum in chlist) {
+				if (chlist[chnum].nid in map)
+					continue;
+				map[chlist[chnum].nid] = map[nd.nid] + 1;
+				if (chlist[chnum].leaf)
+					continue;
+				q.push(chlist[chnum]);
+			}
+		}
+	}
+
+	return map;
+}
 
 /*
  * Viewer
  */
-function treeviewer(element) {
+function forestviewer(element) {
 	this.display = element;
 	this.location = "";
 	this.data = "";
@@ -15,14 +193,14 @@ function treeviewer(element) {
 	this.helper = {};
 
 	this.watch("location", function(prop, oldval, newval) {
-			if (!newval.length) {
-				this.unload();
-				return newval;
-			}
+			this.unload();
 
-			this.display.innerHTML = "Loading a forest...";
+			if (!newval.length)
+				return newval;
+
+			this.display.innerHTML = "Loading the forest...";
 			var this_obj = this;
-			if (request_tree(newval, function(r) {
+			if (request_forest(newval, function(r) {
 						this_obj.load(r);
 					}, function(err) {
 						this_obj.location = "";
@@ -35,23 +213,47 @@ function treeviewer(element) {
 		});
 
 	this.watch("data", function(prop, oldval, newval) {
-			if (!newval) {
-				this.unload();
-				return newval;
-			}
+			this.unload();
 
-			this.display.innerHTML = "Loading a forest...";
+			if (!newval)
+				return newval;
+
+			this.display.innerHTML = "Loading the forest...";
 			this.load(newval);
 			return newval;
 		});
+
+	this.watch("forest", function(prop, oldval, newval) {
+			this.unload();
+
+			if (!newval)
+				return newval;
+
+			this.display.innerHTML = "Loading the forest...";
+			this.showforest(newval);
+			return newval;
+		});
+
+	this.watch("nodevisible", function(prop, oldval, newval) {
+			this.isnodevisible = newval;
+			this.relayout();
+			return newval;
+		});
+
+	if (!document.getElementById("generalinfo")) {
+		var info = document.createElement("div");
+		info.id = "generalinfo";
+		this.display.offsetParent.appendChild(info);
+	}
 
 	this.general = document.getElementById("generalinfo");
 	this.popup = document.getElementById("generalinfo");
 
 	this.borderwidth = 0;
+	this.style = "default";
 
 	/* We overwrite user's settings.  This is because there's no way
-	 * to easily retrieve actual client area with padding on, in DOM,
+	 * to easily retrieve actual client area size with padding on, in DOM,
 	 * without rewriting part of the rendering engine... with no padding,
 	 * clientWidth (in pixels) == style.width and children absolute
 	 * position are relative to clientLeft.  Not knowing that, we
@@ -59,11 +261,12 @@ function treeviewer(element) {
 	 * sure it has no non-default style set with .style.cssText = ""
 	 * perhaps? */
 	this.display.style.padding = "0px";
+	this.display.style.margin = "0px";
 }
 
 var forests = [];
 var forest_id = 0;
-treeviewer.prototype.unload = function() {
+forestviewer.prototype.unload = function() {
 	this.anim_cancel();
 
 	if (this.helper.before_unload)
@@ -91,105 +294,15 @@ treeviewer.prototype.unload = function() {
 		delete this["startnode"];
 	if (this.nodes)
 		delete this["nodes"];
+	if (this.forest)
+		delete this["forest"];
 
 	this.popup_hide();
 
 	/* TODO: detach */
 }
 
-treeviewer.prototype.load = function(input) {
-	if (this.nativescroll) /* TODO: move to stylesheet? */
-		this.display.style.overflow = "auto";
-	else
-		this.display.style.overflow = "hidden";
-
-	if (!input.forest && input.packet && input.packet.name) {
-		var menu = "<h2>Packet " + input.packet.name.to_xml_safe() +
-			"</h2> contains:<br /><p>\n";
-
-		if (input.packet.forest)
-			for (var fnum in input.packet.forest) {
-				forest = input.packet.forest[fnum];
-				/* TODO: use onclick to set location */
-				menu += "<a href=\"" +
-					window.location.pathname + "?" +
-					forest.file + "\">Forest " +
-					forest.file.to_xml_safe() +
-					"</a><br />\n";
-			}
-
-		menu += "</p>";
-		this.display.innerHTML = menu;
-
-		return;
-	}
-
-	if (this.helper.prepare)
-		this.helper.prepare(input);
-
-	var forest = input;
-	if (input.forest)
-		forest = input.forest;
-	if (!forest.stats || !forest.text) {
-		this.location = "";
-		this.display.innerHTML = "Couldn't parse input";
-		return;
-	}
-
-	this.unload();
-
-	if (this.popup_on_init)
-		this.set_general_info(forest);
-	this.forest = forest;
-	if (!forest.startnode || !parseInt(forest.stats.trees)) {
-		this.display.innerHTML = "";
-		return;
-	}
-
-	if (forest.node.from)
-		forest.node = [ forest.node ]; /* Ugly work-around */
-
-	/* Locate the start node */
-	this.startnode = null;
-	this.nodes = {};
-	this.copy = forest.copy;
-	if (!forest.startnode.label)
-		forest.startnode.label = forest.startnode["#text"];
-
-	try {
-		for (var nnum in forest.node) {
-			var node = new forestnode(forest.node[nnum]);
-			this.nodes[node.nid] = node;
-
-			if (node.terminal && node.to != node.from + 1)
-				throw "terminal spans multiple lexemes (" +
-					(node.from + 1) + " - " + node.to + ")";
-
-			if ("nid" in forest.startnode)
-				continue;
-			if (node.nonterminal && node.nonterminal.category ==
-					forest.startnode.label &&
-				node.from == forest.startnode.from &&
-				node.to == forest.startnode.to) {
-				if (this.startnode)
-					throw "multiple start nodes present";
-
-				this.startnode = node;
-			}
-		}
-		if ("nid" in forest.startnode)
-			this.startnode = this.nodes[forest.startnode.nid];
-
-		if (!this.startnode)
-			throw "no start nodes present";
-		this.startnode.set_default_tree(this);
-	} catch (e) {
-		this.display.innerHTML = "Can't parse: " + e;
-		return;
-	}
-
-	/* From here on, we should be independent of input format */
-
+forestviewer.prototype.init_ui = function() {
 	this.widths = new Array(this.startnode.to);
 	this.columns = new Array(this.startnode.to + 1);
 	/* For now all columns have equal widths */
@@ -209,21 +322,27 @@ treeviewer.prototype.load = function(input) {
 	this.blackboard.style.position = "absolute";
 	if (!this.noruler) {
 		this.ruler = document.createElement("div");
-		this.ruler.className = "ruler";
+		this.ruler.className = "ruler ruler-" + this.style;
 		this.ruler.style.position = "absolute";
 	}
-    if (this.noblackboard) {
-        this.blackboard.style.display = "none";
-    }
-    
-	var scale = get_style(".nodecircle").style.width;
+
+	var ncsty = null;
+	try {
+		if ("style" in this)
+			ncsty = get_style(".nodecircle-" + this.style).style;
+	} catch(e) {
+		try {
+			ncsty = get_style(".nodecircle").style;
+		} catch(e) {}
+	}
+	var scale = ncsty == null ? "1" : ncsty.width;
 	if (scale.ends_in("%"))
 		this.scale = this.display.clientWidth * parseInt(scale) * 0.01;
 	else
 		this.scale = parseInt(scale);
 	this.nodeheight = 50.0 / this.scale;
 
-	this.nodebgcolour = get_style(".nodecircle").style.backgroundColor;
+	this.nodebgcolour = ncsty == null ? "white" : ncsty.backgroundColor;
 
 	var this_obj = this;
 	attach(this.nativescroll ? this.blackboard : this.display, "mousedown",
@@ -287,6 +406,7 @@ treeviewer.prototype.load = function(input) {
 	/* Should not matter */
 	this.image.setAttributeNS(null, "preserveAspectRatio", "none");
 
+	this.startnode.update_children(this);
 	this.startnode.update_depth();
 	this.startnode.place(0, this);
 
@@ -344,7 +464,153 @@ treeviewer.prototype.load = function(input) {
 		this.helper.after_loaded(this);
 }
 
-treeviewer.prototype.show = function() {
+forestviewer.prototype.showforest = function(input) {
+	this.unload();
+
+	if (this.nativescroll)
+		this.display.style.overflow = "auto";
+	else
+		this.display.style.overflow = "hidden";
+
+	if (!input.forest && input.packet && input.packet.name) {
+		var menu = "<h2>Packet " + input.packet.name.to_xml_safe() +
+			"</h2> contains:<br /><p>\n";
+
+		if (input.packet.forest)
+			for (var fnum in input.packet.forest) {
+				forest = input.packet.forest[fnum];
+				/* TODO: use onclick to set location */
+				menu += "<a href=\"" +
+					window.location.pathname + "?" +
+					forest.file + "\">Forest " +
+					forest.file.to_xml_safe() +
+					"</a><br />\n";
+			}
+
+		menu += "</p>";
+		this.display.innerHTML = menu;
+
+		return;
+	}
+
+	if (this.helper.prepare)
+		this.helper.prepare(input);
+
+	var forest = input;
+	if (input.forest)
+		forest = input.forest;
+
+	if (this.popup_on_init)
+		this.set_general_info(forest);
+	this.forest = forest;
+	this.nodes = forest.nodes;
+	this.startnode = forest.root;
+
+	/* From here on, we should be independent of input format */
+
+	this.init_ui();
+}
+
+forestviewer.prototype.load = function(input) {
+	if (this.nativescroll) /* TODO: move to stylesheet? */
+		this.display.style.overflow = "auto";
+	else
+		this.display.style.overflow = "hidden";
+
+	if (!input.forest && input.packet && input.packet.name) {
+		var menu = "<h2>Packet " + input.packet.name.to_xml_safe() +
+			"</h2> contains:<br /><p>\n";
+
+		if (input.packet.forest)
+			for (var fnum in input.packet.forest) {
+				forest = input.packet.forest[fnum];
+				/* TODO: use onclick to set location */
+				menu += "<a href=\"" +
+					window.location.pathname + "?" +
+					forest.file + "\">Forest " +
+					forest.file.to_xml_safe() +
+					"</a><br />\n";
+			}
+
+		menu += "</p>";
+
+		this.unload();
+
+		this.display.innerHTML = menu;
+
+		return;
+	}
+
+	if (this.helper.prepare)
+		this.helper.prepare(input);
+
+	var forest = input;
+	if (input.forest)
+		forest = input.forest;
+	if (!forest.stats || !forest.text) {
+		this.location = "";
+		this.display.innerHTML = "Couldn't parse input";
+		return;
+	}
+
+	this.unload();
+
+	if (this.popup_on_init)
+		this.set_general_info(forest);
+	this.forest = forest;
+	if (!forest.startnode || !parseInt(forest.stats.trees)) {
+		this.display.innerHTML = "";
+		return;
+	}
+
+	if ("from" in forest.node)
+		forest.node = [ forest.node ]; /* Ugly work-around */
+
+	/* Locate the start node */
+	this.startnode = null;
+	this.nodes = {};
+	this.copy = forest.copy;
+	if (!forest.startnode.label)
+		forest.startnode.label = forest.startnode["#text"];
+
+	try {
+		for (var nnum in forest.node) {
+			var node = new forestnode(forest.node[nnum]);
+			this.nodes[node.nid] = node;
+
+			if (node.terminal && node.to != node.from + 1)
+				throw "terminal spans multiple lexemes (" +
+					(node.from + 1) + " - " + node.to + ")";
+
+			if ("nid" in forest.startnode)
+				continue;
+			if (node.nonterminal && node.nonterminal.category ==
+					forest.startnode.label &&
+				node.from == forest.startnode.from &&
+				node.to == forest.startnode.to) {
+				if (this.startnode)
+					throw "multiple start nodes present";
+
+				this.startnode = node;
+			}
+		}
+		if ("nid" in forest.startnode)
+			this.startnode = this.nodes[forest.startnode.nid];
+
+		if (!this.startnode)
+			throw "no start nodes present";
+		this.startnode.set_default_tree(this, {});
+	} catch (e) {
+		this.display.innerHTML = "Can't parse: " + e;
+		return;
+	}
+
+	/* From here on, we should be independent of input format */
+
+	this.init_ui();
+}
+
+forestviewer.prototype.show = function() {
 	this.treeheight = this.nodeheight *
 		(this.startnode.depth[1] + this.startnode.depth[3] * 0.5);
 
@@ -356,13 +622,8 @@ treeviewer.prototype.show = function() {
 	this.html_width = this.scale *
 		(this.columns[this.startnode.to] -
 		 this.columns[this.startnode.from]);
+	this.html_height = svg_bottom * this.scale;
 
-    if (this.noblackboard) {
-        this.html_height = 0;
-    } else {
-        this.html_height = svg_bottom * this.scale;
-    }
-    
 	this.image.style.width = Math.round(this.html_width) + "px";
 	this.image.style.height = Math.round(this.html_height) + "px";
 	this.update_viewbox(1);
@@ -386,7 +647,7 @@ treeviewer.prototype.show = function() {
 	}
 }
 
-treeviewer.prototype.anim_update = function() {
+forestviewer.prototype.anim_update = function() {
 	/* TODO: add inertia? */
 	var p = 100.0 - this.step;
 	p *= p * 0.0001;
@@ -396,40 +657,21 @@ treeviewer.prototype.anim_update = function() {
 		node.x = node.x1;
 		node.y = node.y1;
 		node.animating = 0;
-		if (node.leaf)
-			return;
 
-		for (var chnum in node.children[node.current].child)
-			node_done(node.children[node.current].child[chnum]);
-	}
-
-	function node_update_animating(node) {
-		node.x = node.x1;
-		node.y = node.y1;
-		if (!node.animating)
-			node.opacity = "" + p;
-		if (node.leaf)
-			return;
-
-		for (var chnum in node.children[node.current].child)
-			node_update_animating(
-				node.children[node.current].child[chnum]);
+		for (var chnum in node.current_children)
+			node_done(node.current_children[chnum]);
 	}
 
 	function node_update(node) {
-		if (node.animating) {
-			node_update_animating(node);
-			return;
-		}
+		if (node.animating)
+			node.opacity = "" + p;
 
 		/* Seems more stable than x1 * p + x0 * (1 - p) */
 		node.x = node.x0 + (node.x1 - node.x0) * p;
 		node.y = node.y0 + (node.y1 - node.y0) * p;
-		if (node.leaf)
-			return;
 
-		for (var chnum in node.children[node.current].child)
-			node_update(node.children[node.current].child[chnum]);
+		for (var chnum in node.current_children)
+			node_update(node.current_children[chnum]);
 	}
 
 	if (this.step < 100)
@@ -442,14 +684,14 @@ treeviewer.prototype.anim_update = function() {
 		this.anim_sched();
 }
 
-treeviewer.prototype.anim_cancel = function() {
+forestviewer.prototype.anim_cancel = function() {
 	if (this.anim_timer) { /* Note: racy */
 		clearTimeout(this.anim_timer);
 		this.anim_timer = null;
 	}
 }
 
-treeviewer.prototype.anim_sched = function() {
+forestviewer.prototype.anim_sched = function() {
 	this.anim_cancel();
 
 	var this_obj = this;
@@ -459,15 +701,13 @@ treeviewer.prototype.anim_sched = function() {
 			this_obj.show(); }, 50);
 }
 
-treeviewer.prototype.anim_start = function() {
+forestviewer.prototype.anim_start = function() {
 	function node_update(node) {
 		node.x0 = node.x;
 		node.y0 = node.y;
-		if (node.leaf)
-			return;
 
-		for (var chnum in node.children[node.current].child)
-			node_update(node.children[node.current].child[chnum]);
+		for (var chnum in node.current_children)
+			node_update(node.current_children[chnum]);
 	}
 
 	this.anim_cancel();
@@ -477,7 +717,7 @@ treeviewer.prototype.anim_start = function() {
 	this.anim_sched();
 }
 
-treeviewer.prototype.update_viewbox = function(size, x, y) {
+forestviewer.prototype.update_viewbox = function(size, x, y) {
 	if (x == null)
 		x = this.html_left;
 	if (y == null)
@@ -490,15 +730,14 @@ treeviewer.prototype.update_viewbox = function(size, x, y) {
 	if (size) {
 		this.blackboard.style.width =
 			Math.round(this.html_width) + "px";
-		if (!this.noblackboard)
-            this.blackboard.style.height =
-                Math.round(this.html_height) + "px";
+		this.blackboard.style.height =
+			Math.round(this.html_height) + "px";
 		if (this.ruler)
 			this.ruler.style.width = this.blackboard.style.width;
 	}
 }
 
-treeviewer.prototype.popup_show = function(style, x, y) {
+forestviewer.prototype.popup_show = function(style, x, y) {
 	if (x == null)
 		x = this.display.offsetLeft + "px";
 	else
@@ -522,17 +761,17 @@ treeviewer.prototype.popup_show = function(style, x, y) {
 	this.popped = true;
 }
 
-treeviewer.prototype.popup_hide = function() {
+forestviewer.prototype.popup_hide = function() {
 	this.popped = false;
 	if (this.popup)
 		this.popup.style.visibility = "hidden";
 }
 
-treeviewer.prototype.popup_update = function() {
+forestviewer.prototype.popup_update = function() {
 	this.popped = this.popup.style.visibility == "visible";
 }
 
-treeviewer.prototype.set_general_info = function(forest) {
+forestviewer.prototype.set_general_info = function(forest) {
 	this.general.innerHTML = "<p>The input was \"" +
 		forest.text.to_xml_safe() + "\".</p>\n";
 	this.general.innerHTML += "<p>Processing took " +
@@ -552,7 +791,7 @@ treeviewer.prototype.set_general_info = function(forest) {
 	this.popup_show("general");
 }
 
-treeviewer.prototype.down = function(evt) {
+forestviewer.prototype.down = function(evt) {
 	if (evt.preventDefault)
 		evt.preventDefault();
 	else
@@ -576,7 +815,7 @@ treeviewer.prototype.down = function(evt) {
 	this.moving = true;
 }
 
-treeviewer.prototype.up = function(evt) {
+forestviewer.prototype.up = function(evt) {
 	if (!this.moving)
 		return;
 	this.moving = false;
@@ -615,7 +854,7 @@ treeviewer.prototype.up = function(evt) {
 	this.update_viewbox();
 }
 
-treeviewer.prototype.move = function(evt) {
+forestviewer.prototype.move = function(evt) {
 	if (evt.preventDefault)
 		evt.preventDefault();
 	else
@@ -651,18 +890,82 @@ treeviewer.prototype.move = function(evt) {
 	this.update_viewbox(0, x, y);
 }
 
-treeviewer.prototype.highlight = function(re) {
-	for (var forest in forests)
-		forests[forest].startnode.highlight(re);
+/* TODO: this needs to do the fade-in for new nodes and move the
+ * existing ones .  */
+forestviewer.prototype.relayout = function(nofade) {
+	var pos = {};
+
+	if (!this.forest)
+		return;
+
+	this.anim_update();
+	this.anim_cancel();
+	/* (Race) */
+
+	this.startnode.hide(this);
+
+	function node_save_pos(node) {
+		pos[node.nid] = 1;
+
+		for (var chnum in node.current_children)
+			node_save_pos(node.current_children[chnum]);
+	}
+	node_save_pos(this.startnode);
+
+	this.startnode.update_children(this);
+	this.startnode.update_depth();
+	this.startnode.place(0, this);
+
+	function node_update(node) {
+		if (!(node.nid in pos)) {
+			/* TODO */
+			node.x = node.x1;
+			node.y = node.y1;
+		}
+		if (!nofade || (node.nid in pos)) {
+			node.animating = 1;
+			node.opacity = "0";
+		}
+
+		for (var chnum in node.current_children)
+			node_update(node.current_children[chnum]);
+	}
+	node_update(this.startnode);
+
+	if (this.variablewidth) {
+		this.columns[this.startnode.from] = 0;
+		for (var i = this.startnode.from + 1;
+				i <= this.startnode.to; i ++)
+			this.columns[i] = this.columns[i - 1] +
+					this.widths[i - 1];
+	}
+
+	this.anim_start();
+	this.show();
+
+	if (this.variablewidth) {
+		/* TODO: needs to be animated */
+		for (var i = this.startnode.from; i <= this.startnode.to; i ++)
+			this.columns[i] = 0;
+		this.startnode.relayout(this);
+		this.startnode.place(0, this);
+		this.anim_update();
+		this.show();
+	}
 }
 
-treeviewer.prototype.add_tips = function(tips) {
+forestviewer.prototype.highlight = function(re) {
+	for (var forest in forests)
+		forests[forest].startnode.highlight(re, this);
+}
+
+forestviewer.prototype.add_tips = function(tips) {
 	/*this.tips = this.tips.concat(tips);*/
 	for (var tip in tips)
 		this.tips[tip] = tips[tip];
 }
 
-treeviewer.prototype.add_rules = function(rules) {
+forestviewer.prototype.add_rules = function(rules) {
 	var re = /s\([a-z0-9_]+\)/;
 	for (var i in rules) {
 		var matches = rules[i].match(re);
@@ -676,49 +979,18 @@ treeviewer.prototype.add_rules = function(rules) {
 	}
 }
 
+forestviewer.prototype.get_html = function() {
+	return this.display.innerHTML;
+}
+
 /*
  * Forest node
  */
-function forestnode(inputnode) {
-	for (var prop in inputnode)
-		if (prop[0] != '#')
-			this[prop] = inputnode[prop];
+forestnode.prototype.set_default_tree = function(forest, done) {
+	if (this.nid in done)
+		return;
+	done[this.nid] = true;
 
-	if (!("attrs" in this))
-		this.attrs = {};
-	if (!("attrs_order" in this)) {
-		this.attrs_order = [];
-		for (var attr in this.attrs)
-			this.attrs_order.push(attr);
-	}
-
-	if (this.terminal && this.terminal.length)
-		this.terminal = this.terminal[0];
-
-	if (!("space" in this))
-		this.space = 0.0;
-
-	if (this.terminal || this.leaf) {
-		this.leaf = true;
-		if (!this.terminal || this.subtrees == 1)
-			return;
-
-		throw "Wrong subtrees number at a leaf " +
-			this.label + " with nid " + this.nid;
-	}
-
-	if (!this.children)
-		throw "Non-leaf node with no children found: " +
-			this.label + ", nid " + this.nid;
-
-	if (this.children.child)
-		this.children = [ this.children ];
-	else if (!this.children.length)
-		throw "Non-leaf with no children found: " +
-			this.label + ", nid " + this.nid;
-}
-
-forestnode.prototype.set_default_tree = function(forest) {
 	if (!("current" in this))
 		this.current = 0;
 
@@ -730,28 +1002,67 @@ forestnode.prototype.set_default_tree = function(forest) {
 		this.children = [];
 	for (var rulenum in children) {
 		var child = children[rulenum].child;
+
+		/* Note: could convert node.children to a rule => child
+		 * dictionary?  */
+		if (child.nid)
+			child = children[rulenum].child = [ child ];
+
 		if (forest.copy)
 			this.children[rulenum] = {
 				heads: children[rulenum].heads,
 				rule: children[rulenum].rule,
 				"child": [] };
 
-		/* Note: could convert node.children to a rule => child
-		 * dictionary?  */
-		if (this.children[rulenum].child.nid)
-			this.children[rulenum].child =
-				[ this.children[rulenum].child ];
-
 		for (var chnum in child) {
-			var nid = child[chnum].nid;
+			var nid = child[chnum];
+			if (typeof(nid) == "object" && "nid" in nid)
+				nid = nid.nid;
 			if (!(nid in forest.nodes))
 				throw "Referred node " + nid + " not found";
 
 			var subnode = forest.nodes[nid];
 			this.children[rulenum].child[chnum] = subnode;
-			subnode.set_default_tree(forest);
+			subnode.set_default_tree(forest, done);
 		}
 	}
+}
+
+forestnode.prototype.update_children = function(viewer) {
+	if (this.leaf) {
+		this.current_children = [];
+		return;
+	}
+
+	var children = [];
+	var heads = [];
+	var orig_heads = this.children[this.current].heads == undefined ?
+			[] : this.children[this.current].heads;
+	for (var chnum in this.children[this.current].child) {
+		var child = this.children[this.current].child[chnum];
+		var visible = true;
+
+		child.update_children(viewer);
+
+		if (viewer.isnodevisible)
+			visible = viewer.isnodevisible(child, this);
+
+		if (orig_heads.indexOf(parseInt(chnum)) > -1) {
+			if (visible)
+				heads.push(children.length);
+			else
+				for (var headnum in child.current_heads)
+					heads.push(children.length +
+						child.current_heads[headnum]);
+		}
+
+		if (visible)
+			children.push(child);
+		else
+			children = children.concat(child.current_children);
+	}
+	this.current_children = children;
+	this.current_heads = heads;
 }
 
 forestnode.prototype.update_depth = function() {
@@ -760,13 +1071,13 @@ forestnode.prototype.update_depth = function() {
 	if (this.leaf) {
 		if (this.incomplete)
 			space += 0.6;
-		this.depth = [ space, space, space, 0 ];
+		this.depth = [ space, space + 0.2, space, 0 ]; /* Hack (0.2) */
 		return;
 	}
 
 	this.depth = [ 0x1000, -1, space, -1 ]
-	for (var chnum in this.children[this.current].child) {
-		var subnode = this.children[this.current].child[chnum];
+	for (var chnum in this.current_children) {
+		var subnode = this.current_children[chnum];
 
 		subnode.update_depth();
 
@@ -780,73 +1091,68 @@ forestnode.prototype.update_depth = function() {
 }
 
 /* TODO: rename these two as horiz layout and vert layout */
-forestnode.prototype.place = function(y, forest) {
-	var height = forest.nodeheight * 0.5;
+forestnode.prototype.place = function(y, viewer) {
+	var height = viewer.nodeheight * 0.5;
 
-	this.x1 = (forest.columns[this.from] + forest.columns[this.to]) * 0.5;
-	this.y1 = y * forest.nodeheight + height * 0.5;
+	this.x1 = (viewer.columns[this.from] + viewer.columns[this.to]) * 0.5;
+	this.y1 = y * viewer.nodeheight + height * 0.5;
 	if (this.hidden) {
 		if (this.terminal)
 			/* Hidden terminals are at ruler cells */
-			this.y1 = forest.nodeheight *
-				(forest.startnode.depth[1] +
-					forest.startnode.depth[3] * 0.5);
+			this.y1 = viewer.nodeheight *
+				(viewer.startnode.depth[1] +
+					viewer.startnode.depth[3] * 0.5);
 		else
 			this.y1 -= height;
 	}
 
-	if (this.leaf)
-		return;
-
-	y += this.depth[2] + (forest.startnode.depth[1] +
-			forest.startnode.depth[3] * 0.5 - y -
+	y += this.depth[2] + (viewer.startnode.depth[1] +
+			viewer.startnode.depth[3] * 0.5 - y -
 			this.depth[1]) / this.depth[3];
-	for (var chnum in this.children[this.current].child)
-		this.children[this.current].child[chnum].place(y, forest);
+	for (var chnum in this.current_children)
+		this.current_children[chnum].place(y, viewer);
 }
 
 /* A smarter version of this could have different width spaces between
  * columns, basically there would be a left x and right x value for
  * every column and some smarter logic.. (various possible things to do
- * there.  */
-forestnode.prototype.relayout = function(forest) {
-	if (!this.leaf)
-		/* Note this assumes left-to-right order */
-		for (var chnum in this.children[this.current].child)
-			this.children[this.current].child[chnum].relayout(
-					forest);
+ * there.)  */
+forestnode.prototype.relayout = function(viewer) {
+	/* Note this assumes left-to-right order */
+	for (var chnum in this.current_children)
+		this.current_children[chnum].relayout(viewer);
 
 	if (!this.elem && !this.ruler)
 		return;
 
-	var subwidth = forest.columns[this.to] - forest.columns[this.from];
+	var subwidth = viewer.columns[this.to] - viewer.columns[this.from];
 	var width = this.elem ? this.elem.offsetWidth : 0;
 	if (this.ruler) {
 		var rwidth = this.ruler_span.offsetWidth;
 		if (rwidth > width)
 			width = rwidth;
 	}
-	width += forest.horiz_space; /* TODO: should use a css property */
-	width = width * 1.0 / forest.scale;
+	width += viewer.horiz_space; /* TODO: should use a css property */
+	width = width * 1.0 / viewer.scale;
 
 	if (this.elem && this.elem_space == undefined)
-		this.elem_space = this.elem.offsetHeight / forest.scale /
-			forest.nodeheight;
+		this.elem_space = this.elem.offsetHeight / viewer.scale /
+			viewer.nodeheight;
 
 	if (subwidth >= width)
 		return;
 	if (subwidth < 0.001) {
-		forest.columns[this.to] = forest.columns[this.from] + width;
+		viewer.columns[this.to] = viewer.columns[this.from] + width;
 		return;
 	}
 
 	for (var c = this.from + 1; c <= this.to; c ++)
-		forest.columns[c] = forest.columns[this.from] +
-			(forest.columns[c] - forest.columns[this.from]) *
+		viewer.columns[c] = viewer.columns[this.from] +
+			(viewer.columns[c] - viewer.columns[this.from]) *
 			width / subwidth;
 }
 
-forestnode.prototype.update_info = function(onover, onout, onwheel) {
+forestnode.prototype.update_info = function(onover, onout, onwheel, viewer) {
 	var text = this.terminal ? "\"" + this.terminal.base + "\"" :
 			this.nonterminal.category;
 	this.info.innerHTML = "";
@@ -868,19 +1174,58 @@ forestnode.prototype.update_info = function(onover, onout, onwheel) {
 		rulename = this.children[this.current].rule.to_xml_safe();
 
 	/* TODO: use images */
-	var left = this.current ? "&lt;" : " ";
-	var right = this.current < this.children.length - 1 ? "&gt;" : " ";
+	//var left = this.current ? "&lt;" : " ";
+	//var right = this.current < this.children.length - 1 ? "&gt;" : " ";
 
 	var rule = document.createElement("span");
-	rule.className = "rule";
-	rule.innerHTML = left + " " + rulename + " " + right;
+	rule.className = "rule rule-" + viewer.style;
+	//rule.innerHTML = left + " " + rulename + " " + right;
+	rule.innerHTML = rulename + " ";
 	this.info.appendChild(document.createElement("br"));
 	this.info.appendChild(rule);
+
+	if (this.children.length > 1) {
+		var this_obj = this;
+
+		var left = document.createElement("div");
+		left.className = "switcher-left";
+		left.onclick = function(evt) {
+			if (this_obj.current)
+				this_obj.switch_subtree(-1, viewer);
+		};
+
+		var right = document.createElement("div");
+		right.className = "switcher-right";
+		right.onclick = function(evt) {
+			if (this_obj.current < this_obj.children.length - 1)
+				this_obj.switch_subtree(1, viewer);
+		};
+
+		var switcher = document.createElement("span");
+		switcher.appendChild(left);
+		for (var rulenum = 0; rulenum < this.children.length;
+				rulenum ++) {
+			var mid = document.createElement("div");
+			mid.className = (rulenum == this.current) ?
+				"switcher-current" : "switcher-middle";
+			mid.rulenum = rulenum;
+			mid.onclick = function(evt) {
+				this_obj.switch_subtree(this.rulenum -
+						this_obj.current, viewer);
+			};
+
+			switcher.appendChild(mid);
+		}
+		switcher.appendChild(right);
+
+		rule.appendChild(switcher);
+		rule.title = "Użyj kółka myszy aby wybrać inne poddrzewo."
+	}
 
 	attach(rule, "DOMMouseScroll", onwheel, false);
 }
 
-forestnode.prototype.highlight = function(re) {
+forestnode.prototype.highlight = function(re, viewer) {
 	if (this.graph) {
 		/* TODO: Use stylesheet classes instead */
 		var match = this.attrs[re[0]] && this.attrs[re[0]].match(re[1]);
@@ -893,48 +1238,46 @@ forestnode.prototype.highlight = function(re) {
 		var match = this.attrs[re[0]] && this.attrs[re[0]].match(re[1]);
 		if (match && !this.orig_class) {
 			this.orig_class = this.elem.className;
-			this.elem.className += " highlighted-node";
+			this.elem.className += " highlighted-node " +
+					"highlighted-node-" + viewer.style;
 		} else if (!match && this.orig_class) {
 			this.elem.className = this.orig_class;
 			delete this.orig_class;
 		}
 	}
 
-	if (this.leaf)
-		return;
-
-	for (var chnum in this.children[this.current].child)
-		this.children[this.current].child[chnum].highlight(re);
+	for (var chnum in this.current_children)
+		this.current_children[chnum].highlight(re, viewer);
 }
 
 var separators = "() ,:;[]";
-forestnode.prototype.popup_fill = function(forest) {
-	forest.popup.innerHTML = "";
+forestnode.prototype.popup_fill = function(viewer) {
+	viewer.popup.innerHTML = "";
 
 	for (var num in this.attrs_order) {
 		var name = this.attrs_order[num];
 
-		forest.add_attr_spans(forest.popup, name);
-		forest.popup.appendChild(document.createTextNode(": "));
+		viewer.add_attr_spans(viewer.popup, name);
+		viewer.popup.appendChild(document.createTextNode(": "));
 
-		forest.add_attr_spans(forest.popup, name, this.attrs[name]);
-		forest.popup.appendChild(document.createElement("br"));
+		viewer.add_attr_spans(viewer.popup, name, this.attrs[name]);
+		viewer.popup.appendChild(document.createElement("br"));
 	}
 
-	if (forest.helper.popup_info) {
+	if (viewer.helper.popup_info) {
 		var userinfo = document.createElement("div");
-		forest.helper.popup_info(this, userinfo, forest);
-		forest.popup.appendChild(userinfo);
+		viewer.helper.popup_info(this, userinfo, viewer);
+		viewer.popup.appendChild(userinfo);
 		return;
 	}
 
 	if (this.leaf)
 		return;
 
-	for (var i in forest.tips) {
+	for (var i in viewer.tips) {
 		var match = 0;
-		for (var j in forest.tips[i])
-			if (forest.tips[i][j] == this.nonterminal.category)
+		for (var j in viewer.tips[i])
+			if (viewer.tips[i][j] == this.nonterminal.category)
 				match = 1;
 		if (!match)
 			continue;
@@ -942,54 +1285,55 @@ forestnode.prototype.popup_fill = function(forest) {
 		var tip = document.createElement("p");
 		tip.className = "tip";
 		tip.innerHTML = i.to_xml_safe();
-		forest.popup.appendChild(tip);
+		viewer.popup.appendChild(tip);
 		break;
 	}
 
 	if (!this.children || !this.children[this.current].rule)
 		return;
 
-	if (!(this.children[this.current].rule in forest.rules))
+	if (!(this.children[this.current].rule in viewer.rules))
 		return;
-	var rule = forest.rules[this.children[this.current].rule];
+	var rule = viewer.rules[this.children[this.current].rule];
 	var pre = document.createElement("pre");
 	pre.innerHTML = rule.to_xml_safe();
-	forest.popup.appendChild(pre);
+	viewer.popup.appendChild(pre);
 }
 
-forestnode.prototype.show_ruler = function(forest) {
+/* TODO: this needs to be handled more generically */
+function node_orth(node) {
+	if (node.terminal)
+		return node.terminal.orth;
+
+	var chld = node.children[0].child;
+	var orth = "";
+	for (var chnum in chld) {
+		var sub = node_orth(chld[chnum]);
+		if (".,".indexOf(sub[0]) == -1 && orth)
+			orth += " ";
+		orth += sub;
+	}
+	return orth;
+}
+
+forestnode.prototype.show_ruler = function(viewer) {
 	if (this.leaf) {
-		var left = Math.round(forest.columns[this.from] * forest.scale);
-		var right = Math.round(forest.columns[this.to] * forest.scale);
+		var left = Math.round(viewer.columns[this.from] * viewer.scale);
+		var right = Math.round(viewer.columns[this.to] * viewer.scale);
 		if (!this.ruler) {
-			function node_orth(node) {
-				if (node.terminal)
-					return node.terminal.orth;
-
-				var chld = node.children[0].child;
-				var orth = "";
-				for (var chnum in chld) {
-					var sub = node_orth(chld[chnum]);
-					if (".,".indexOf(sub[0]) == -1 && orth)
-						orth += " ";
-					orth += sub;
-				}
-				return orth;
-			}
-
 			this.ruler = document.createElement("div");
-			this.ruler.className = "lexeme";
+			this.ruler.className = "lexeme lexeme-" + viewer.style;
 			this.ruler.style.position = "absolute";
 
 			this.ruler_span = document.createElement("span");
-			if (forest.helper.update_ruler_info)
-				forest.helper.update_ruler_info(this);
+			if (viewer.helper.update_ruler_info)
+				viewer.helper.update_ruler_info(this);
 			else
 				this.ruler_span.innerHTML =
 					node_orth(this).to_xml_safe();
 
 			this.ruler.appendChild(this.ruler_span);
-			forest.ruler.appendChild(this.ruler);
+			viewer.ruler.appendChild(this.ruler);
 		}
 
 		this.ruler.style.left = left + "px";
@@ -998,28 +1342,26 @@ forestnode.prototype.show_ruler = function(forest) {
 		return;
 	}
 
-	for (var chnum in this.children[this.current].child)
-		this.children[this.current].child[chnum].show_ruler(forest);
+	for (var chnum in this.current_children)
+		this.current_children[chnum].show_ruler(viewer);
 }
 
-forestnode.prototype.show_default = function(forest) {
+forestnode.prototype.show_default = function(viewer) {
 	/* Note: all the constants in this function are arbitrary numbers
 	 * taken out of thin air.  Change them to try to improve the
 	 * tree's appearance.  */
-	var maxwidth = forest.columns[this.to] - forest.columns[this.from];
+	var maxwidth = viewer.columns[this.to] - viewer.columns[this.from];
 	var width = maxwidth * 0.9;
-	if (width < 0.9)
-		width = 0.9;
-	var height = forest.nodeheight * 0.5;
+	var height = viewer.nodeheight * 0.5;
 
 	if (!this.graph && !this.hidden) {
-		this.graph = document.createElementNS(forest.graph_ns,
+		this.graph = document.createElementNS(viewer.graph_ns,
 				"ellipse");
 		this.graph.setAttributeNS(null, "stroke-width", 0);
 		this.graph.setAttributeNS(null, "stroke", "black");
-		this.graph.setAttributeNS(null, "fill", forest.nodebgcolour);
+		this.graph.setAttributeNS(null, "fill", viewer.nodebgcolour);
 
-		forest.image.appendChild(this.graph);
+		viewer.image.appendChild(this.graph);
 	}
 	if (this.graph) {
 		this.graph.setAttributeNS(null, "cx", this.x);
@@ -1030,27 +1372,27 @@ forestnode.prototype.show_default = function(forest) {
 
 	if (!this.info && !this.hidden) {
 		this.info = document.createElement("div");
-		this.info.className = "nodelabel";
+		this.info.className = "nodelabel nodelabel-" + viewer.style;
 		this.info.style.position = "absolute";
 
 		var this_obj = this;
 		var onafter = function() {
 			this_obj.popup_timer = null;
-			this_obj.popup_fill(forest);
+			this_obj.popup_fill(viewer);
 
-			forest.popup_show(this_obj.terminal ? "terminal" :
+			viewer.popup_show(this_obj.terminal ? "terminal" :
 					"nonterminal", this_obj.x, this_obj.y);
 		}
 		var onover = function(evt) {
-			forest.over = this_obj;
+			viewer.over = this_obj;
 			if (this.moving)
 				return;
 
-			forest.timeout = onafter;
+			viewer.timeout = onafter;
 			this_obj.popup_timer = setTimeout(onafter, 1000);
 		}
 		var onout = function(evt) {
-			forest.over = null;
+			viewer.over = null;
 			if (!this_obj.popup_timer)
 				return;
 
@@ -1058,37 +1400,37 @@ forestnode.prototype.show_default = function(forest) {
 			this_obj.popup_timer = null;
 		}
 		var onwheel = function(evt) {
-			this_obj.wheel(evt, forest);
+			this_obj.wheel(evt, viewer);
 		}
-		if (forest.helper.update_node_info)
-			forest.helper.update_node_info(this, onover, onout,
+		if (viewer.helper.update_node_info)
+			viewer.helper.update_node_info(this, onover, onout,
 				onwheel, function() {
-					forest.over = null;
-					forest.popup_hide();
+					viewer.over = null;
+					viewer.popup_hide();
 				});
 		else
-			this.update_info(onover, onout, onwheel);
+			this.update_info(onover, onout, onwheel, viewer);
 
-		forest.blackboard.appendChild(this.info);
+		viewer.blackboard.appendChild(this.info);
 	}
 	if (this.info) {
 		this.info.style.left =
 			Math.round((this.x - maxwidth * 0.5) *
-				forest.scale) + "px";
+				viewer.scale) + "px";
 		this.info.style.top =
 			Math.round((this.y - height * 0.3) *
-				forest.scale) + "px";
+				viewer.scale) + "px";
 		this.info.style.width =
-			Math.round(maxwidth * forest.scale) + "px";
+			Math.round(maxwidth * viewer.scale) + "px";
 		this.info.style.height =
-			Math.round(forest.nodeheight * ((this.elem_space ?
+			Math.round(viewer.nodeheight * ((this.elem_space ?
 						this.elem_space + 0.5 : 1) +
-					this.space) * forest.scale) + "px";
+					this.space) * viewer.scale) + "px";
 		if (this.opacity)
 			this.info.style.opacity = this.opacity;
 
-		if (forest.helper.update_node_pos)
-			forest.helper.update_node_pos(this, forest);
+		if (viewer.helper.update_node_pos)
+			viewer.helper.update_node_pos(this, viewer);
 	}
 
 	if (this.leaf) {
@@ -1096,55 +1438,55 @@ forestnode.prototype.show_default = function(forest) {
 		if (this.incomplete && !this.decoration) {
 			this.decoration = new Array();
 			var y = this.y + (this.elem_space ? this.elem_space +
-					0.1 : 0.3) * forest.nodeheight;
+					0.1 : 0.3) * viewer.nodeheight;
 			for (var i = 0; i < 6; i ++) {
 				var w = 0.05 / (i + 1);
 				var x = width * (0.2 + 0.035 * i);
 				var deco = document.createElementNS(
-						forest.graph_ns, "line");
+						viewer.graph_ns, "line");
 
 				y += w * 0.5;
 				deco.setAttributeNS(null, "stroke-width", w);
 				deco.setAttributeNS(null, "fill", "none");
 				deco.setAttributeNS(null, "stroke",
-						forest.nodebgcolour);
+						viewer.nodebgcolour);
 				deco.setAttributeNS(null, "x1", this.x - x);
 				deco.setAttributeNS(null, "y1", y);
 				deco.setAttributeNS(null, "x2", this.x + x);
 				deco.setAttributeNS(null, "y2", y);
 				y += w * 0.5 + 0.015;
 
-				forest.image.appendChild(deco);
+				viewer.image.appendChild(deco);
 				this.decoration.push(deco);
 			}
 		}
 		return;
 	}
+	if (this.current_children.length == 0)
+		return;
 
 	var left = 0;
 	var right = 0;
 
-	for (var chnum in this.children[this.current].child) {
-		if (this.children[this.current].child[chnum].x > this.x + 0.01)
+	for (var chnum in this.current_children) {
+		if (this.current_children[chnum].x > this.x + 0.01)
 			right ++;
-		if (this.children[this.current].child[chnum].x < this.x - 0.01)
+		if (this.current_children[chnum].x < this.x - 0.01)
 			left ++;
 	}
 
-	var yoff = this.children[this.current].child[0].y - this.y;
+	var yoff = this.current_children[0].y - this.y;
 	var xs = -left; /* TODO: assumes left-to-right iteration */
 	var ys = 0;
 	if (left > right &&
-		left + right < this.children[this.current].child.length)
+		left + right < this.current_children.length)
 		xs ++;
 	else if (left == right &&
-		left + right == this.children[this.current].child.length)
+		left + right == this.current_children.length)
 		xs += 0.5;
-	var heads = this.children[this.current].heads != undefined ?
-			this.children[this.current].heads : [];
-	for (var chnum in this.children[this.current].child) {
-		var child = this.children[this.current].child[chnum];
-		child.show(forest);
+	for (var chnum in this.current_children) {
+		var child = this.current_children[chnum];
+		child.show(viewer);
 
 		var xoff = child.x - this.x;
 		if (xoff > 0.01)
@@ -1157,7 +1499,7 @@ forestnode.prototype.show_default = function(forest) {
 		var y0 = height * 0.4;
 		var y1 = height * 0.15 + ys * 0.03;
 		var y2 = height * 0.2 + ys * 0.03;
-		var y3 = forest.nodeheight * 0.45 - y2 - y1;
+		var y3 = viewer.nodeheight * 0.45 - y2 - y1;
 		var y4 = yoff - height;
 
 		var path =
@@ -1173,25 +1515,25 @@ forestnode.prototype.show_default = function(forest) {
 				(x3 - x0) + "," + (y2 + y3 + y4);
 
 		if (!child.link) {
-			child.link = document.createElementNS(forest.graph_ns,
+			child.link = document.createElementNS(viewer.graph_ns,
 					"path");
 			child.link.setAttributeNS(null, "stroke-width", 0.05);
 			child.link.setAttributeNS(null, "fill", "none");
 			child.link.setAttributeNS(null, "stroke",
-					forest.nodebgcolour);
+					viewer.nodebgcolour);
 
-			forest.image.appendChild(child.link);
+			viewer.image.appendChild(child.link);
 
-			if (heads.indexOf(chnum) > -1) {
+			if (this.current_heads.indexOf(parseInt(chnum)) > -1) {
 				child.linkhead = document.createElement("div");
 				child.linkhead.className = "head";
 				child.linkhead.style.position = "absolute";
 				child.linkhead.innerHTML = "&#9660;";
-				forest.blackboard.appendChild(child.linkhead);
+				viewer.blackboard.appendChild(child.linkhead);
 /*				child.link.setAttributeNS(null,
 						"id", "w" + child.nid);
 				child.linkhead = document.createElementNS(
-						forest.graph_ns, "text");
+						viewer.graph_ns, "text");
 				child.linkhead.setAttributeNS(null,
 						"fill", "black");
 				child.linkhead.setAttributeNS(null,
@@ -1200,7 +1542,7 @@ forestnode.prototype.show_default = function(forest) {
 						"font-family", "Verdana");
 
 				var tp = document.createElementNS(
-						forest.graph_ns, "textPath");
+						viewer.graph_ns, "textPath");
 				tp.setAttributeNS(
 						"http://www.w3.org/1999/xlink",
 						"xlink:href", "#w" + child.nid);
@@ -1208,7 +1550,7 @@ forestnode.prototype.show_default = function(forest) {
 						"Hello!&#9664;"));
 				child.linkhead.appendChild(tp);
 
-				forest.image.appendChild(child.linkhead);
+				viewer.image.appendChild(child.linkhead);
 */
 			}
 		}
@@ -1222,19 +1564,19 @@ forestnode.prototype.show_default = function(forest) {
 		//	/* First move a little straight south */
 		//	" t" + (xoff * 0.1) + "," + (height * 0.3) + " " +
 		//	/* Then turn in the direction of child node (horiz) */
-		//	(xoff * 0.4) + "," + (forest.nodeheight * 0.2) + " " +
+		//	(xoff * 0.4) + "," + (viewer.nodeheight * 0.2) + " " +
 		//	/* Now we should be just above it, turn down again */
-		//	(xoff * 0.35) + "," + (forest.nodeheight * 0.25));
+		//	(xoff * 0.35) + "," + (viewer.nodeheight * 0.25));
 
 		if (child.linkhead) {
 			child.linkhead.style.left =
 				Math.round((child.x - 0.2) *
-					forest.scale) + "px";
+					viewer.scale) + "px";
 			child.linkhead.style.top =
 				Math.round((child.y - height) *
-					forest.scale) + "px";
+					viewer.scale) + "px";
 			child.linkhead.style.width =
-				Math.round(forest.scale * 0.4) + "px";
+				Math.round(viewer.scale * 0.4) + "px";
 		}
 
 		if (xoff < -0.01)
@@ -1243,39 +1585,39 @@ forestnode.prototype.show_default = function(forest) {
 	}
 }
 
-forestnode.prototype.show_simple = function(forest) {
+forestnode.prototype.show_simple = function(viewer) {
 	/* Note: all the constants in this function are arbitrary numbers
 	 * taken out of thin air.  Change them to try to improve the
 	 * tree's appearance.  */
-	var maxwidth = forest.columns[this.to] - forest.columns[this.from];
+	var maxwidth = viewer.columns[this.to] - viewer.columns[this.from];
 	var width = maxwidth * 0.9;
 	if (width < 0.9)
 		width = maxwidth;
-	var height = forest.nodeheight * 0.5;
+	var height = viewer.nodeheight * 0.5;
 
 	if (!this.info && !this.hidden) {
 		this.info = document.createElement("div");
-		this.info.className = "nodelabel";
+		this.info.className = "nodelabel nodelabel-" + viewer.style;
 		this.info.style.position = "absolute";
 
 		var this_obj = this;
 		var onafter = function() {
 			this_obj.popup_timer = null;
-			this_obj.popup_fill(forest);
+			this_obj.popup_fill(viewer);
 
-			forest.popup_show(this_obj.terminal ? "terminal" :
+			viewer.popup_show(this_obj.terminal ? "terminal" :
 					"nonterminal", this_obj.x, this_obj.y);
 		}
 		var onover = function(evt) {
-			forest.over = this_obj;
+			viewer.over = this_obj;
 			if (this.moving)
 				return;
 
-			forest.timeout = onafter;
+			viewer.timeout = onafter;
 			this_obj.popup_timer = setTimeout(onafter, 1000);
 		}
 		var onout = function(evt) {
-			forest.over = null;
+			viewer.over = null;
 			if (!this_obj.popup_timer)
 				return;
 
@@ -1283,36 +1625,36 @@ forestnode.prototype.show_simple = function(forest) {
 			this_obj.popup_timer = null;
 		}
 		var onwheel = function(evt) {
-			this_obj.wheel(evt, forest);
+			this_obj.wheel(evt, viewer);
 		}
 		var onswitch = function(d) {
-			this_obj.switch_subtree(d, forest);
+			this_obj.switch_subtree(d, viewer);
 		}
-		if (forest.helper.update_node_info)
-			forest.helper.update_node_info(this, onover, onout,
-				onwheel, onswitch, forest.add_attr_spans,
+		if (viewer.helper.update_node_info)
+			viewer.helper.update_node_info(this, onover, onout,
+				onwheel, onswitch, viewer.add_attr_spans,
 				function() {
-					forest.over = null;
-					forest.popup_hide();
+					viewer.over = null;
+					viewer.popup_hide();
 				});
 		else
-			this.update_info(onover, onout, onwheel);
+			this.update_info(onover, onout, onwheel, viewer);
 
-		forest.blackboard.appendChild(this.info);
+		viewer.blackboard.appendChild(this.info);
 	}
 	if (this.info) {
 		this.info.style.left =
 			Math.round((this.x - maxwidth * 0.5) *
-				forest.scale) + "px";
+				viewer.scale) + "px";
 		this.info.style.top =
 			Math.round((this.y - height * 0.3) *
-				forest.scale) + "px";
+				viewer.scale) + "px";
 		this.info.style.width =
-			Math.round(maxwidth * forest.scale) + "px";
+			Math.round(maxwidth * viewer.scale) + "px";
 		this.info.style.height =
-			Math.round(forest.nodeheight * ((this.elem_space ?
+			Math.round(viewer.nodeheight * ((this.elem_space ?
 						this.elem_space + 0.5 : 1) +
-					this.space) * forest.scale) + "px";
+					this.space) * viewer.scale) + "px";
 		if (this.opacity)
 			this.info.style.opacity = this.opacity;
 	}
@@ -1322,22 +1664,22 @@ forestnode.prototype.show_simple = function(forest) {
 			this.decoration = new Array();
 			for (var i = 0; i < 6; i ++) {
 				var deco = document.createElementNS(
-						forest.graph_ns, "line");
+						viewer.graph_ns, "line");
 
 				deco.setAttributeNS(null, "fill", "none");
 				deco.setAttributeNS(null, "stroke",
-						forest.nodebgcolour);
+						viewer.nodebgcolour);
 
-				forest.image.appendChild(deco);
+				viewer.image.appendChild(deco);
 				this.decoration.push(deco);
 			}
 		}
 		if (this.decoration) {
 			var y = this.y + (this.elem_space ? this.elem_space -
-					0.1 : 0.4) * forest.nodeheight;
+					0.1 : 0.4) * viewer.nodeheight;
 			var deco_height = 0.05;
 			var break_height = 0.015;
-			var max_height = forest.treeheight - y;
+			var max_height = viewer.treeheight - y;
 			var h = 0;
 			for (var i = 0; i < this.decoration.length; i ++)
 				h += deco_height / (i + 1);
@@ -1365,20 +1707,20 @@ forestnode.prototype.show_simple = function(forest) {
 		return;
 	}
 
-	var ch = this.children[this.current].child;
-	var midy = forest.treeheight;
+	var ch = this.current_children;
+	var midy = viewer.treeheight;
 	for (var chnum in ch)
 		if (ch[chnum].y < midy)
 			midy = ch[chnum].y;
 	midy = (midy + this.y) * 0.5;
 
-	for (headnum in this.children[this.current].heads) {
-		var child = ch[this.children[this.current].heads[headnum]];
+	for (headnum in this.current_heads) {
+		var child = ch[this.current_heads[headnum]];
 		if (child.headlink)
 			continue;
 
 		child.headlink = document.createElementNS(
-				forest.graph_ns, "path");
+				viewer.graph_ns, "path");
 		child.headlink.setAttributeNS(null, "stroke-width", 0.15);
 /*		child.headlink.setAttributeNS(null,
 				"stroke-dasharray", "0.1,0.1"); */
@@ -1390,24 +1732,24 @@ forestnode.prototype.show_simple = function(forest) {
 		child.linkhead.className = "head";
 		child.linkhead.style.position = "absolute";
 		child.linkhead.innerHTML = "&#9660;";
-		forest.blackboard.appendChild(child.linkhead); */
+		viewer.blackboard.appendChild(child.linkhead); */
 
 		/* Must be added first to stay at the bottom */
-		forest.image.appendChild(child.headlink);
+		viewer.image.appendChild(child.headlink);
 	}
 	for (var chnum in ch) {
 		var child = ch[chnum];
-		child.show(forest);
+		child.show(viewer);
 
 		if (!child.link) {
-			child.link = document.createElementNS(forest.graph_ns,
+			child.link = document.createElementNS(viewer.graph_ns,
 					"path");
 			child.link.setAttributeNS(null, "stroke-width", 0.016);
 			child.link.setAttributeNS(null, "fill", "none");
 			child.link.setAttributeNS(null, "stroke",
-					forest.nodebgcolour);
+					viewer.nodebgcolour);
 
-			forest.image.appendChild(child.link);
+			viewer.image.appendChild(child.link);
 		}
 
 		child.link.setAttributeNS(null, "d",
@@ -1419,12 +1761,12 @@ forestnode.prototype.show_simple = function(forest) {
 		if (child.linkhead) {
 			child.linkhead.style.left =
 				Math.round((child.x - 0.2) *
-					forest.scale) + "px";
+					viewer.scale) + "px";
 			child.linkhead.style.top =
 				Math.round((child.y - height) *
-					forest.scale) + "px";
+					viewer.scale) + "px";
 			child.linkhead.style.width =
-				Math.round(forest.scale * 0.4) + "px";
+				Math.round(viewer.scale * 0.4) + "px";
 		}
 
 		if (child.headlink) {
@@ -1437,45 +1779,45 @@ forestnode.prototype.show_simple = function(forest) {
 	}
 }
 
-forestnode.prototype.set_style = function(forest) {
-	var style = forest.style;
+forestnode.prototype.set_style = function(viewer) {
+	var style = viewer.style;
 
 	if (style == undefined || !(("show_" + style) in forestnode.prototype))
 		style = "default";
 
-	forestnode.prototype.show = forestnode.prototype["show_" + style];
-	this.show(forest);
+	this.show = forestnode.prototype["show_" + style];
+	this.show(viewer);
 }
 forestnode.prototype.show = forestnode.prototype.set_style;
 
-forestnode.prototype.hide = function(forest) {
+forestnode.prototype.hide = function(viewer) {
 	if (this.graph) {
-		forest.image.removeChild(this.graph);
+		viewer.image.removeChild(this.graph);
 		delete this["graph"];
 	}
 
 	if (this.link) {
-		forest.image.removeChild(this.link);
+		viewer.image.removeChild(this.link);
 		delete this["link"];
 
 		if (this.linkhead) {
-			forest.blackboard.removeChild(this.linkhead);
+			viewer.blackboard.removeChild(this.linkhead);
 			delete this["linkhead"];
 		}
 		if (this.headlink) {
-			forest.image.removeChild(this.headlink);
+			viewer.image.removeChild(this.headlink);
 			delete this["headlink"];
 		}
 	}
 
 	if (this.decoration) {
 		for (var i in this.decoration)
-			forest.image.removeChild(this.decoration[i]);
+			viewer.image.removeChild(this.decoration[i]);
 		delete this["decoration"];
 	}
 
 	if (this.info) {
-		forest.blackboard.removeChild(this.info);
+		viewer.blackboard.removeChild(this.info);
 		delete this["elem"];
 		if (this.rule)
 			delete this["rule"];
@@ -1483,23 +1825,23 @@ forestnode.prototype.hide = function(forest) {
 	}
 
 	if (this.ruler) {
-		forest.ruler.removeChild(this.ruler);
+		viewer.ruler.removeChild(this.ruler);
 		delete this["ruler"];
 		delete this["ruler_span"];
 	}
 
-	if (this.leaf)
-		return;
+	if ("show" in this)
+		delete this["show"];
 
-	for (var chnum in this.children[this.current].child)
-		this.children[this.current].child[chnum].hide(forest);
+	for (var chnum in this.current_children)
+		this.current_children[chnum].hide(viewer);
 }
 
 forestnode.prototype.nopopup = function() {
 	forest.over = null;
 }
 
-forestnode.prototype.wheel = function(evt, forest) {
+forestnode.prototype.wheel = function(evt, viewer) {
 	if (evt.preventDefault)
 		evt.preventDefault();
 	else
@@ -1516,59 +1858,884 @@ forestnode.prototype.wheel = function(evt, forest) {
 		delta = -evt.detail / 3;
 
 	if (delta < 0 && this.current < this.children.length - 1)
-		this.switch_subtree(1, forest);
+		this.switch_subtree(1, viewer);
 	else if (delta > 0 && this.current)
-		this.switch_subtree(-1, forest);
+		this.switch_subtree(-1, viewer);
 }
 
-forestnode.prototype.switch_subtree = function(d, forest) {
+forestnode.prototype.switch_subtree = function(d, viewer) {
 	var newsubtree = this.current + d;
 
-	forest.anim_update();
-	forest.anim_cancel();
+	viewer.anim_update();
+	viewer.anim_cancel();
 	/* (Race) */
 
-	this.hide(forest);
+	this.hide(viewer);
 	this.current = newsubtree;
-	this.animating = 1;
 
-	forest.startnode.update_depth();
-	forest.startnode.place(0, forest);
+	viewer.startnode.update_children(viewer);
+	viewer.startnode.update_depth();
+	viewer.startnode.place(0, viewer);
 
 	function node_update(node) {
 		node.x = node.x1;
 		node.y = node.y1;
-		if (!node.animating)
+		if (node.nid != this.nid) {
 			node.opacity = "0";
-		if (node.leaf)
-			return;
+			node.animating = 1;
+		}
 
-		for (var chnum in node.children[node.current].child)
-			node_update(node.children[node.current].child[chnum]);
+		for (var chnum in node.current_children)
+			node_update(node.current_children[chnum]);
 	}
 	node_update(this);
 
-	if (forest.variablewidth) {
-		forest.columns[forest.startnode.from] = 0;
-		for (var i = forest.startnode.from + 1;
-				i <= forest.startnode.to; i ++)
-			forest.columns[i] = forest.columns[i - 1] +
-					forest.widths[i - 1];
+	if (viewer.variablewidth) {
+		viewer.columns[viewer.startnode.from] = 0;
+		for (var i = viewer.startnode.from + 1;
+				i <= viewer.startnode.to; i ++)
+			viewer.columns[i] = viewer.columns[i - 1] +
+					viewer.widths[i - 1];
 	}
 
-	forest.anim_start();
-	forest.show();
+	viewer.anim_start();
+	viewer.show();
 
-	if (forest.variablewidth) {
+	if (viewer.variablewidth) {
 		/* TODO: needs to be animated */
-		for (var i = forest.startnode.from; i <= forest.startnode.to;
+		for (var i = viewer.startnode.from; i <= viewer.startnode.to;
 				i ++)
-			forest.columns[i] = 0;
-		forest.startnode.relayout(forest);
-		forest.startnode.place(0, forest);
-		forest.anim_update();
-		forest.show();
+			viewer.columns[i] = 0;
+		viewer.startnode.relayout(viewer);
+		viewer.startnode.place(0, viewer);
+		viewer.anim_update();
+		viewer.show();
 	}
+}
+
+/*
+ * Syntactic spreadsheets
+ */
+function synspreadviewer(element) {
+	this.display = element;
+	this.data = "";
+
+	this.watch("forest", function(prop, oldval, newval) {
+			this.unload();
+
+			if (!newval)
+				return newval;
+
+			this.display.innerHTML = "Loading the forest...";
+			this.load(newval);
+			return newval;
+		});
+
+	this.isnodevisible = this.nodevisible = function(x) { return true; };
+	this.watch("nodevisible", function(prop, oldval, newval) {
+			this.isnodevisible = newval;
+			if (this.forest)
+				this.relayout();
+			return newval;
+		});
+
+	this.ismergeable = this.nodemergeable = function(x) { return false; };
+	this.watch("nodemergeable", function(prop, oldval, newval) {
+			this.ismergeable = newval;
+			if (this.forest)
+				this.relayout();
+			return newval;
+		});
+
+	this.terminals = this.showterminals = true;
+	this.watch("showterminals", function(prop, oldval, newval) {
+			this.terminals = newval;
+			if (this.forest)
+				this.relayout();
+			return newval;
+		});
+
+	this.nonterminals = this.shownonterminals = true;
+	this.watch("shownonterminals", function(prop, oldval, newval) {
+			this.nonterminals = newval;
+			if (this.forest)
+				this.relayout();
+			return newval;
+		});
+
+	this.maxtrees = this.maxtreecount = 32;
+	this.watch("maxtreecount", function(prop, oldval, newval) {
+			this.maxtrees = newval;
+			if (this.forest)
+				this.relayout();
+			return newval;
+		});
+
+	this.watch("cellfill_fn", function(prop, oldval, newval) {
+			this.cellfill = newval;
+			if (this.forest)
+				this.relayout();
+			return newval;
+		});
+
+	this.showtbrulers = true;
+
+	/* We overwrite user's settings.  This is because there's no way
+	 * to easily retrieve actual client area size with padding on, in DOM,
+	 * without rewriting part of the rendering engine... with no padding,
+	 * clientWidth (in pixels) == style.width and children absolute
+	 * position are relative to clientLeft.  Not knowing that, we
+	 * would need to create another div inside this.display and make
+	 * sure it has no non-default style set with .style.cssText = ""
+	 * perhaps? */
+	this.display.style.padding = "0px";
+	this.display.style.margin = "0px";
+}
+
+synspreadviewer.prototype.load = function(forest) {
+	var row;
+
+	this.unload();
+
+	this.display.innerHTML = "";
+
+	this.footer = document.createElement("div");
+	this.header = document.createElement("div");
+	this.leftruler = document.createElement("div");
+	this.rightruler = document.createElement("div");
+	this.blackboard = document.createElement("div");
+	this.footer.style.position = "absolute";
+	this.header.style.position = "absolute";
+	this.leftruler.style.position = "absolute";
+	this.rightruler.style.position = "absolute";
+	this.blackboard.style.position = "absolute";
+	this.footer.style.overflow = "hidden";
+	this.header.style.overflow = "hidden";
+	this.leftruler.style.overflow = "hidden";
+	this.rightruler.style.overflow = "hidden";
+	this.display.style.overflow = "hidden";
+
+	if (this.showtbrulers) {
+		this.display.appendChild(this.header);
+		this.display.appendChild(this.footer);
+	}
+	this.display.appendChild(this.leftruler);
+	this.display.appendChild(this.rightruler);
+	this.display.appendChild(this.blackboard);
+
+	this.current = forest;
+	this.relayout();
+}
+
+synspreadviewer.prototype.unload = function() {
+	this.destroy_cells();
+	if (this.blackboard) {
+		this.display.removeChild(this.blackboard);
+		if (this.showtbrulers) {
+			this.display.removeChild(this.header);
+			this.display.removeChild(this.footer);
+		}
+		this.display.removeChild(this.leftruler);
+		this.display.removeChild(this.rightruler);
+		delete this.blackboard;
+		delete this.header;
+		delete this.footer;
+		delete this.leftruler;
+		delete this.rightruler;
+	}
+	delete this.nidmap;
+	delete this.treecount;
+	delete this.treelist;
+}
+
+synspreadviewer.prototype.relayout = function() {
+	if (!this.current)
+		return;
+
+	this.destroy_cells();
+	this.make_cells();
+	this.update_selection();
+	this.update_sizes();
+}
+
+/* Assign cell positions to nodes, handle merged nodes, tree counting etc */
+synspreadviewer.prototype.recalc_stats = function() {
+	/* Some parent nodes may be merged into a single cell with
+	 * their only child and grand child and so on, if they form an
+	 * uninteresting sequence (e.g. no branches, no ambiguity and
+	 * same or similar morphologic/syntactic attributes).  We can't
+	 * merge nodes that have multiple parents in the forest (appear
+	 * in multiple subforests) with their parents however, so we
+	 * find them and count the parents.  */
+	this.parents = {};
+	var this_obj = this;
+	var countparents = function(node) {
+		if (node.nid in this_obj.parents) {
+			this_obj.parents[node.nid] ++;
+			return;
+		}
+		this_obj.parents[node.nid] = 1;
+		for (var rulenum in node.children) {
+			var chld = node.children[rulenum].child;
+			for (var chnum in chld)
+				countparents(chld[chnum]);
+		}
+	}
+	countparents(this.current.root);
+
+	/* For each node count the number of possible subtrees rooted
+	 * there.  The complexity is O(n).  */
+	this.subtrees = {};
+	var countsubtrees = function(node) {
+		if (node.nid in this_obj.subtrees)
+			return this_obj.subtrees[node.nid];
+		if (node.leaf)
+			return this_obj.subtrees[node.nid] = 1;
+		this_obj.subtrees[node.nid] = 0;
+		for (var rulenum in node.children) {
+			var chld = node.children[rulenum].child;
+			var subs = 1;
+			for (var chnum in chld)
+				subs *= countsubtrees(chld[chnum]);
+			this_obj.subtrees[node.nid] += subs;
+		}
+		return this_obj.subtrees[node.nid];
+	}
+	countsubtrees(this.current.root);
+
+	/* For each node count the actual individual trees containing
+	 * that node.  This is tricky and the solution given here is
+	 * quite complex just to keep the complexity linear relative
+	 * to the number of nodes in forests where nodes have many
+	 * parents.  */
+	this.treecount = {};
+	var q0 = [ this.current.root.nid ];
+	var q = {};
+	var othertrees = {};
+	othertrees[this.current.root.nid] = 1;
+	while (q0.length) {
+		var node = this.current.nodes[q0.shift()];
+
+		this.treecount[node.nid] =
+			this.subtrees[node.nid] * othertrees[node.nid];
+
+		if (node.leaf)
+			continue;
+
+		for (var rulenum in node.children) {
+			var chld = node.children[rulenum].child;
+			var trees = 1;
+			for (var chnum in chld)
+				trees *= this.subtrees[chld[chnum].nid];
+			for (var chnum in chld) {
+				var subnid = chld[chnum].nid;
+				var othersubtrees =
+					trees / this.subtrees[subnid] *
+					othertrees[node.nid];
+				if (!(subnid in q)) {
+					q[subnid] = this.parents[subnid];
+					othertrees[subnid] = 0;
+				}
+				q[subnid] --;
+				othertrees[subnid] += othersubtrees;
+				if (!q[subnid]) {
+					delete q[subnid];
+					q0.push(subnid);
+				}
+			}
+		}
+	}
+	for (var nid in q)
+		throw "Not all nodes of the forest could be processed " +
+			"when counting trees -- likely bad topology.";
+
+	/* Generate the first this.maxtrees indivitual tree numbers for
+	 * each node of the forest.  This also decides the order of
+	 * trees.  The complexity should be O(n * this.maxtrees), but
+	 * it's a little hard to see and the constant factors are
+	 * certainly high.  This part needs more thought.. (TODO)  */
+	this.treelist = {};
+	var done = {};
+	var listtrees = function(node, gettreeid, othertrees) {
+		if (node.nid in done)
+			return;
+
+		if (!(node.nid in this_obj.treelist))
+			this_obj.treelist[node.nid] = [];
+		var list = this_obj.treelist[node.nid];
+		var subs = this_obj.subtrees[node.nid];
+		var localid = 0;
+
+		while (list.length < this_obj.maxtrees) {
+			var a = localid % subs;
+			var b = (localid - a) / subs;
+			var newtreeid = gettreeid(a, b);
+			if (newtreeid < 0)
+				break;
+			list.push(newtreeid);
+			localid ++;
+		}
+
+		if (node.leaf) {
+			if (list.length >= this_obj.maxtrees)
+				done[node.nid] = true;
+			return;
+		}
+
+		var startid = 0;
+		var thisdone = list.length >= this_obj.maxtrees;
+		for (var rulenum in node.children) {
+			var chld = node.children[rulenum].child;
+			var trees = 1;
+			var denom = 1;
+			var modulo = 1;
+			for (var chnum in chld)
+				trees *= this_obj.subtrees[chld[chnum].nid];
+			for (var chnum in chld) {
+				var subnid = chld[chnum].nid;
+				var subsubs = this_obj.subtrees[subnid];
+
+				modulo *= subsubs;
+
+				var fun = function(a, b) {
+					var c = b % denom;
+					var x = a * denom + c +
+						(b - c) * subsubs;
+					a = x % trees;
+					b = (x - a) / trees;
+					return gettreeid(startid + a, b);
+				}
+
+				var othersubtrees = /* Currently unused */
+					trees / subsubs * othertrees;
+				listtrees(chld[chnum], fun, othersubtrees);
+
+				denom *= subsubs;
+
+				if (!(subnid in done))
+					thisdone = false;
+			}
+			startid += trees;
+		}
+		if (thisdone)
+			done[node.nid] = true;
+	}
+	listtrees(this.current.root, function(a, b) { return b ? -1 : a; }, 1);
+}
+
+synspreadviewer.prototype.recalc_positions = function() {
+	this.nidmap = {};
+	var allcols = {};
+	var tcols = {};
+	var mcols = {};
+	var this_obj = this;
+	var calcrow = function(node, parent) {
+		if (node.nid in this_obj.nidmap)
+			return;
+
+		if (!node.leaf)
+			for (var rulenum in node.children) {
+				var chld = node.children[rulenum].child;
+				for (var chnum in chld)
+					calcrow(chld[chnum], node);
+			}
+
+		if (!this_obj.terminals && node.terminal)
+			return;
+		if (!this_obj.nonterminals && node.nonterminal)
+			return;
+
+		if (this_obj.isnodevisible &&
+				!this_obj.isnodevisible(node, parent))
+			return;
+		if (this_obj.ismergeable && !node.leaf &&
+				node.children.length == 1 &&
+				node.children[0].child.length == 1) {
+			var ch = node.children[0].child[0];
+			if (ch.from == node.from && ch.to == node.to &&
+					!ch.terminal &&
+					this_obj.parents[ch.nid] == 1 &&
+					this_obj.ismergeable(ch, node)) {
+				this_obj.nidmap[node.nid] =
+					this_obj.nidmap[ch.nid];
+				return;
+			}
+		}
+
+		var cols = node.terminal ? tcols : mcols;
+		var min = -1;
+
+		/* Find a free row in the spreadsheet */
+		for (var pos = node.from; pos < node.to; pos ++)
+			if (pos in cols && cols[pos] > min)
+				min = cols[pos];
+		var row = min + 1;
+
+		/* Mark it as occupied */
+		for (var pos = node.from; pos < node.to; pos ++)
+			cols[pos] = row;
+		this_obj.nidmap[node.nid] = row;
+	}
+	calcrow(this.current.root, null);
+
+	/* Place all the non-terminals below the last terminal */
+	var min = 0;
+	for (var pos in tcols)
+		if (tcols[pos] >= min)
+			min = tcols[pos] + 1;
+	for (var nid in this.nidmap)
+		if (!this.current.nodes[nid].terminal)
+			this.nidmap[nid] += min;
+	this.termrows = min;
+}
+
+synspreadviewer.prototype.make_cells = function(single) {
+	/* For now do this once.  TODO: do this always, and only, when the
+	 * the forest is changed, do it in the forest class.  */
+	if (!this.treelist)
+		this.recalc_stats();
+	this.recalc_positions();
+
+	var allcols = {};
+	for (var nid in this.nidmap) {
+		var nd = this.current.nodes[nid];
+		allcols[nd.from] = 1;
+		allcols[nd.to] = 1;
+	}
+	cols = [];
+	for (var pos in allcols)
+		cols.push(pos);
+	cols.sort(function(x, y) { return x - y });
+	this.pos_to_col = {};
+	for (var pos in cols)
+		this.pos_to_col[cols[pos]] = parseInt(pos);
+
+	this.rows = [];
+	this.single_column_nodes = {};
+	for (var nid in this.nidmap) {
+		while (this.nidmap[nid] >= this.rows.length)
+			this.rows.push(new Array(cols.length));
+
+		var nd = this.current.nodes[nid];
+		var from = this.pos_to_col[nd.from];
+		var to = this.pos_to_col[nd.to];
+		var row = this.rows[this.nidmap[nid]];
+
+		if (nd.to == cols[from + 1] && allcols[nd.from] == 1) {
+			allcols[nd.from] = node_orth(nd);
+			this.single_column_nodes[from] = nid;
+		}
+
+		if (!(from in row))
+			row[from] = [];
+		row[from].push(nd);
+	}
+
+	this.cellid = {};
+	this.rowid = [];
+	var tcid = 1;
+	var ntcid = 1;
+
+	this.table = document.createElement("table");
+	this.table.className = "synspreadviewer-table";
+	for (var rownum = 0; rownum < this.rows.length; rownum ++) {
+		this.rowid.push(rownum < this.termrows ?
+				"T." + (rownum + 1) :
+				("M." + (rownum + 1 - this.termrows)));
+
+		var row = this.table.insertRow(-1);
+		for (var col = 0; col < cols.length - 1; col ++) {
+			var cell = row.insertCell(-1);
+			var nds = this.rows[rownum][col];
+			if (nds == undefined)
+				continue;
+
+			var cid;
+			if (nds[0].terminal)
+				cid = "T-" + (tcid ++);
+			else
+				cid = "M-" + (ntcid ++);
+			for (var nnum in nds)
+				this.cellid[nds[nnum].nid] = cid;
+
+			var from = this.pos_to_col[nds[0].from];
+			var to = this.pos_to_col[nds[0].to];
+
+			cell.colSpan = "" + (to - from);
+			cell.className = nds[0].terminal ?
+				"synspreadviewer-terminal" :
+				"synspreadviewer-nonterminal";
+
+			if (this.cellfill) {
+				this.cellfill(cell, nds, rownum, col,
+						this.rowid, this.cellid,
+						this.treecount[nds[0].nid],
+						this.treecount[
+							this.current.root.nid],
+						this.treelist[nds[0].nid]);
+
+				col += to - from - 1;
+				continue;
+			}
+
+			var label = "?";
+			if (nds[0].terminal)
+				label = nds[0].terminal.base;
+			else if (nds[0].nonterminal)
+				label = nds[0].nonterminal.category;
+
+			cell.innerHTML = label.to_xml_safe() + "<br />" +
+				this.treecount[nds[0].nid] + " / " +
+				this.treecount[this.current.root.nid];
+
+			col += to - from - 1;
+		}
+	}
+
+	this.blackboard.innerHTML = "";
+	this.blackboard.appendChild(this.table);
+
+	this.single = single;
+	if (single) {
+		var tbrows = [];
+		var start = 0, stop = this.rows.length;
+		if (this.showtbrulers) {
+			tbrows = [
+				this.table.insertRow(-1),
+				this.table.insertRow(0),
+			];
+			start ++;
+			stop ++;
+		}
+		for (var i in tbrows) {
+			var row = tbrows[i];
+
+			for (var col = 0; col < cols.length - 1; col ++) {
+				var cell = row.insertCell(-1);
+				var label = allcols[cols[col]];
+				if (label == 1)
+					label = "";
+
+				cell.innerHTML =
+					"<div>" + label.to_xml_safe() +
+					"</div>";
+				cell.className = "synspreadviewer-ruler";
+			}
+		}
+
+		for (var rnum = 0; rnum < this.table.rows.length; rnum ++) {
+			var row = this.table.rows[rnum];
+			var cells = [
+				row.insertCell(0),
+				row.insertCell(-1),
+			];
+			if (rnum < start || rnum >= stop) {
+				cells[0].className = cells[1].className =
+					"synspreadviewer-empty";
+				continue;
+			}
+			var label = this.rowid[rnum - start];
+			label = "<div>" + label.to_xml_safe() + "</div>";
+
+			cells[0].innerHTML = cells[1].innerHTML =
+				label;
+			cells[0].className = cells[1].className =
+				"synspreadviewer-ruler";
+		}
+
+		return;
+	}
+
+	this.tbrulers = [ 0, 0 ];
+	for (var i in this.tbrulers) {
+		var ruler = document.createElement("table");
+		var row = ruler.insertRow(-1);
+
+		ruler.className = "synspreadviewer-ruler";
+
+		for (var col = 0; col < cols.length - 1; col ++) {
+			var cell = row.insertCell(-1);
+			var label = allcols[cols[col]];
+			if (label == 1)
+				label = "";
+
+			cell.innerHTML =
+				"<div>" + label.to_xml_safe() + "</div>";
+		}
+		this.tbrulers[i] = ruler;
+	}
+	this.header.innerHTML = "";
+	this.header.appendChild(this.tbrulers[0]);
+	this.footer.innerHTML = "";
+	this.footer.appendChild(this.tbrulers[1]);
+
+	this.lrrulers = [ 0, 0 ];
+	for (var i in this.lrrulers) {
+		var ruler = document.createElement("table");
+
+		ruler.className = "synspreadviewer-ruler";
+
+		for (var rnum = 0; rnum < this.rows.length; rnum ++) {
+			var row = ruler.insertRow(-1);
+			var cell = row.insertCell(-1);
+			var label = this.rowid[rnum];
+
+			cell.innerHTML =
+				"<div>" + label.to_xml_safe() + "</div>";
+		}
+		this.lrrulers[i] = ruler;
+	}
+	this.leftruler.innerHTML = "";
+	this.leftruler.appendChild(this.lrrulers[0]);
+	this.rightruler.innerHTML = "";
+	this.rightruler.appendChild(this.lrrulers[1]);
+}
+
+synspreadviewer.prototype.select_tree = function(treeid) {
+	var this_obj = this;
+	var select = function(nd, id) {
+		if (nd.leaf)
+			return;
+
+		var rulenum, chld;
+		for (rulenum in nd.children) {
+			chld = nd.children[rulenum].child;
+
+			var trees = 1;
+			for (var chnum in chld)
+				trees *= this_obj.subtrees[chld[chnum].nid];
+
+			if (id < trees)
+				break;
+
+			id -= trees;
+		}
+
+		nd.current = parseInt(rulenum);
+
+		for (var chnum in chld) {
+			var subsubs = this_obj.subtrees[chld[chnum].nid];
+			var sid = id % subsubs;
+			id -= sid;
+			id /= subsubs;
+
+			select(chld[chnum], sid);
+		}
+	};
+	select(this.current.root, treeid);
+
+	this.update_selection();
+}
+
+synspreadviewer.prototype.update_selection = function() {
+	this.current.root.update_children(this);
+
+	var selected = {};
+	var select = function(nd) {
+		selected[nd.nid] = 1;
+		for (var chnum in nd.current_children)
+			select(nd.current_children[chnum]);
+	};
+	select(this.current.root);
+
+	for (var rownum = 0; rownum < this.rows.length; rownum ++)
+		for (var col = 0; col < this.rows[rownum].length; col ++) {
+			var nds = this.rows[rownum][col];
+			if (nds == undefined)
+				continue;
+
+			var actrow = rownum;
+			var actcol = col;
+			if (this.single) {
+				if (this.showtbrulers)
+					actrow ++;
+				actcol ++;
+			}
+
+			var cell = this.table.rows[rownum].cells[col];
+			if (cell == undefined)
+				continue;
+
+			var classes = cell.className;
+
+			classes = classes.replace("synspreadviewer-selected",
+					"");
+			if (nds[0].nid in selected)
+				classes += " synspreadviewer-selected";
+
+			cell.className = classes;
+		}
+}
+
+synspreadviewer.prototype.destroy_cells = function() {
+	if (this.table) {
+		this.blackboard.removeChild(this.table);
+		if (!this.single) {
+			this.leftruler.removeChild(this.lrrulers[0]);
+			this.rightruler.removeChild(this.lrrulers[1]);
+			this.header.removeChild(this.tbrulers[0]);
+			this.footer.removeChild(this.tbrulers[1]);
+		}
+		delete this.table;
+		delete this.lrrulers;
+		delete this.tbrulers;
+		delete this.single_column_nodes;
+	}
+}
+
+synspreadviewer.prototype.update_sizes = function(fullsize) {
+	/* Ugly ugly: Make the container smaller than the content to
+	 * calculate the scroll bars and decorations size.. */
+	this.blackboard.style.overflowX = "scroll";
+	this.blackboard.style.overflowY = "scroll";
+	var decorwidth = this.blackboard.offsetWidth -
+		this.blackboard.clientWidth;
+	var decorheight = this.blackboard.offsetHeight -
+		this.blackboard.clientHeight;
+
+	var width = this.display.clientWidth;
+	var height = this.display.clientHeight;
+	var twidth = this.table.offsetWidth;
+	var theight = this.table.offsetHeight;
+	var lrwidth = this.leftruler.offsetWidth + this.rightruler.offsetWidth;
+	var tbheight = this.footer.offsetHeight + this.header.offsetHeight;
+
+	if (this.single) {
+		lrwidth = 0;
+		tbheight = 0;
+	}
+
+	if (fullsize) {
+		decorwidth = decorheight = 0;
+		width = twidth + lrwidth;
+		height = theight + tbheight;
+	}
+
+	var vspace = height - tbheight - theight;
+	if (vspace - decorheight >= 0)
+		decorwidth = 0;
+
+	var hspace = width - lrwidth - twidth;
+	if (hspace - decorwidth >= 0)
+		decorheight = 0;
+
+	if (vspace - decorheight < 0) {
+		this.blackboard.style.height = (height - tbheight) + "px";
+		this.blackboard.style.top = this.header.offsetHeight + "px";
+		this.blackboard.style.overflowY = "scroll";
+	} else {
+		this.blackboard.style.height = (theight + decorheight) + "px";
+		this.blackboard.style.top = ((vspace / 2) +
+				this.header.offsetHeight) + "px";
+		this.blackboard.style.overflowY = "hidden";
+	}
+
+	if (hspace - decorwidth < 0) {
+		this.blackboard.style.width = (width - lrwidth) + "px";
+		this.blackboard.style.left = this.leftruler.offsetWidth + "px";
+		this.blackboard.style.overflowX = "scroll";
+	} else {
+		this.blackboard.style.width = (twidth + decorwidth) + "px";
+		this.blackboard.style.left = ((hspace / 2) +
+				this.leftruler.offsetWidth) + "px";
+		this.blackboard.style.overflowX = "hidden";
+	}
+
+	if (this.single)
+		return;
+
+	this.header.style.left =
+		(this.blackboard.offsetLeft + this.blackboard.clientLeft -
+		 this.header.clientLeft) + "px";
+	this.header.style.top =
+		(this.blackboard.offsetTop -
+		 this.header.offsetHeight) + "px";
+	this.header.style.width =
+		this.blackboard.clientWidth + "px";
+
+	this.footer.style.left =
+		(this.blackboard.offsetLeft + this.blackboard.clientLeft -
+		 this.footer.clientLeft) + "px";
+	this.footer.style.top =
+		(this.blackboard.offsetTop +
+		 this.blackboard.offsetHeight) + "px";
+	this.footer.style.width =
+		this.blackboard.clientWidth + "px";
+
+	this.leftruler.style.left =
+		(this.blackboard.offsetLeft -
+		 this.leftruler.offsetWidth) + "px";
+	this.leftruler.style.top =
+		(this.blackboard.offsetTop + this.blackboard.clientTop -
+		 this.leftruler.clientTop) + "px";
+	this.leftruler.style.height =
+		this.blackboard.clientHeight + "px";
+
+	this.rightruler.style.left =
+		(this.blackboard.offsetLeft +
+		 this.blackboard.offsetWidth) + "px";
+	this.rightruler.style.top =
+		(this.blackboard.offsetTop + this.blackboard.clientTop -
+		 this.rightruler.clientTop) + "px";
+	this.rightruler.style.height =
+		this.blackboard.clientHeight + "px";
+
+	this.tbrulers[0].width = this.table.offsetWidth + "px";
+	this.tbrulers[1].width = this.table.offsetWidth + "px";
+	var cols = this.tbrulers[0].rows[0].cells.length;
+	var border = this.tbrulers[0].rows[0].cells[0].offsetWidth -
+		this.tbrulers[0].rows[0].cells[0].childNodes[0].clientWidth;
+	for (var col = 0; col < cols; col ++) {
+		var row = this.nidmap[this.single_column_nodes[col]];
+		var cells = this.table.rows[row].cells;
+		var rcol = 0;
+
+		for (var pos = 0; pos != col; rcol ++)
+			pos += cells[rcol].colSpan;
+
+		for (var i in this.tbrulers) {
+			var cell = this.tbrulers[i].rows[0].cells[col];
+			cell.childNodes[0].style.width =
+				(cells[rcol].offsetWidth - border) + "px";
+		}
+	}
+
+	var rows = this.lrrulers[0].rows.length;
+	var border = this.lrrulers[0].rows[0].offsetHeight -
+		this.lrrulers[0].rows[0].cells[0].childNodes[0].clientHeight;
+	for (var row = 0; row < rows; row ++)
+		for (var i in this.lrrulers) {
+			var cell = this.lrrulers[i].rows[row];
+			cell.childNodes[0].childNodes[0].style.height =
+				(this.table.rows[row].offsetHeight - border) +
+				"px";
+		}
+
+	var this_obj = this;
+	this.blackboard.onscroll = function(evt) {
+		this_obj.footer.scrollLeft = this_obj.blackboard.scrollLeft;
+		this_obj.header.scrollLeft = this_obj.blackboard.scrollLeft;
+		this_obj.leftruler.scrollTop = this_obj.blackboard.scrollTop;
+		this_obj.rightruler.scrollTop = this_obj.blackboard.scrollTop;
+	}
+}
+
+synspreadviewer.prototype.get_html = function() {
+	if (!this.current)
+		return "";
+
+	this.destroy_cells();
+	this.make_cells(true);
+	this.update_sizes(true);
+
+	var ret = this.display.innerHTML;
+
+	this.destroy_cells();
+	this.make_cells();
+	this.update_selection();
+	this.update_sizes();
+
+	return ret;
 }
 
 /*
@@ -1727,9 +2894,13 @@ function get_style(name) {
 			rules = document.styleSheets[stnum].rules;
 
 		for (var rulenum in rules)
+			/* TODO: work around some firefox bug causing
+			 * warnings (note that ("selectorText" in ...) does
+			 * not seem to work).  */
 			if (rules[rulenum].selectorText == name)
 				return rules[rulenum];
 	}
+	throw "not found";
 }
 
 function attach(obj, evt, fn, capt) {
@@ -1764,7 +2935,7 @@ function eval_json(str) {
  */
 var c = function(value) { return value; }
 var cq = [];
-function request_tree(treeurl, cb, err_cb, data) {
+function request_forest(treeurl, cb, err_cb, data) {
 	var http_request;
 	var xml = treeurl.ends_in(".xml");
 	var mime = xml ? "text/xml" : "text/plain";
@@ -1777,16 +2948,11 @@ function request_tree(treeurl, cb, err_cb, data) {
 		try {
 			http_request = new ActiveXObject("Msxml2.XMLHTTP");
 		} catch (e) {
-			try {
-				http_request =
-					new ActiveXObject("Microsoft.XMLHTTP");
-			} catch (e) {}
+			http_request = new ActiveXObject("Microsoft.XMLHTTP");
 		}
 	}
-	if (!http_request) {
-		alert("I couldn\'t make no XMLHttp object :-(");
-		return false;
-	}
+	if (!http_request)
+		throw "I couldn\'t make no XMLHttp object :-("
 
 	http_request.onreadystatechange = function() {
 		if (http_request.readyState != 4)
@@ -1821,4 +2987,24 @@ function request_tree(treeurl, cb, err_cb, data) {
 	http_request.send(null);
 
 	return http_request;
+}
+
+/*
+ * XML parser
+ */
+function dom_parser(str) {
+	if (window.DOMParser) /* Mozilla, webkit,... */
+		return new DOMParser().parseFromString(str, "text/xml");
+	else if (window.ActiveXObject) { /* IE */
+		var doc;
+		try {
+			doc = new ActiveXObject("Msxml2.XMLDOM");
+		} catch (e) {
+			doc = new ActiveXObject("Microsoft.XMLDOM");
+		}
+		doc.async = "false";
+		doc.loadXML(str);
+		return doc;
+	}
+	throw "I couldn\'t make no XMLDOM object :-("
 }
