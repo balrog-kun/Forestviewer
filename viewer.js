@@ -1402,9 +1402,16 @@ forestnode.prototype.show_default = function(viewer) {
 		var onwheel = function(evt) {
 			this_obj.wheel(evt, viewer);
 		}
+		var onswitch = function(d) {
+			this_obj.switch_subtree(d, viewer);
+		}
+		var onresize = function() {
+			this_obj.resize_commit(viewer);
+		}
 		if (viewer.helper.update_node_info)
 			viewer.helper.update_node_info(this, onover, onout,
-				onwheel, function() {
+				onwheel, onswitch, onresize,
+				viewer.add_attr_spans, function() {
 					viewer.over = null;
 					viewer.popup_hide();
 				});
@@ -1630,10 +1637,13 @@ forestnode.prototype.show_simple = function(viewer) {
 		var onswitch = function(d) {
 			this_obj.switch_subtree(d, viewer);
 		}
+		var onresize = function() {
+			this_obj.resize_commit(viewer);
+		}
 		if (viewer.helper.update_node_info)
 			viewer.helper.update_node_info(this, onover, onout,
-				onwheel, onswitch, viewer.add_attr_spans,
-				function() {
+				onwheel, onswitch, onresize,
+				viewer.add_attr_spans, function() {
 					viewer.over = null;
 					viewer.popup_hide();
 				});
@@ -1889,6 +1899,40 @@ forestnode.prototype.switch_subtree = function(d, viewer) {
 			node_update(node.current_children[chnum]);
 	}
 	node_update(this);
+
+	if (viewer.variablewidth) {
+		viewer.columns[viewer.startnode.from] = 0;
+		for (var i = viewer.startnode.from + 1;
+				i <= viewer.startnode.to; i ++)
+			viewer.columns[i] = viewer.columns[i - 1] +
+					viewer.widths[i - 1];
+	}
+
+	viewer.anim_start();
+	viewer.show();
+
+	if (viewer.variablewidth) {
+		/* TODO: needs to be animated */
+		for (var i = viewer.startnode.from; i <= viewer.startnode.to;
+				i ++)
+			viewer.columns[i] = 0;
+		viewer.startnode.relayout(viewer);
+		viewer.startnode.place(0, viewer);
+		viewer.anim_update();
+		viewer.show();
+	}
+}
+
+forestnode.prototype.resize_commit = function(viewer) {
+	viewer.anim_update();
+	viewer.anim_cancel();
+	/* (Race) */
+
+	delete this.elem_space;
+	this.relayout(viewer);
+
+	viewer.startnode.update_depth();
+	viewer.startnode.place(0, viewer);
 
 	if (viewer.variablewidth) {
 		viewer.columns[viewer.startnode.from] = 0;
