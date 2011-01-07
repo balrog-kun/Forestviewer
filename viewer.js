@@ -233,8 +233,10 @@ function forestviewer(element) {
 
 			this.unload();
 
-			if (!newval)
+			if (!newval) {
+				reccheck --;
 				return newval;
+			}
 
 			this.display.innerHTML = "Loading the forest...";
 			this.load(newval);
@@ -250,8 +252,10 @@ function forestviewer(element) {
 
 			this.unload();
 
-			if (!newval)
+			if (!newval) {
+				reccheck --;
 				return newval;
+			}
 
 			this.display.innerHTML = "Loading the forest...";
 			this.showforest(newval);
