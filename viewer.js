@@ -118,7 +118,7 @@ function forestnode(inputnode, nid) {
 		throw "Non-leaf node with no children found: " +
 			this.label + ", nid " + this.nid;
 
-	if (this.children.child)
+	if ("child" in this.children)
 		this.children = [ this.children ];
 	else if (typeof(this.children[0]) == "string" &&
 			(this.children.length & 1) == 0) {
@@ -130,6 +130,15 @@ function forestnode(inputnode, nid) {
 	} else if (!this.children.length)
 		throw "Non-leaf with no children found: " +
 			this.label + ", nid " + this.nid;
+	for (var i in this.children) {
+		for (var p in this.children[i])
+			if (p[0] == "#")
+				delete this.children[i][p];
+		if ("nid" in this.children[i].child)
+			this.children[i].child = [ this.children[i].child ];
+		if (!("nid" in this.children[i].child[0]))
+			throw "Bad children list in node " + this.nid;
+	}
 }
 
 forestnode.prototype.get_depth = function(nidmap) {
@@ -192,6 +201,7 @@ function forestviewer(element) {
 	this.rules = {};
 	this.helper = {};
 
+	var reccheck = 0;
 	this.watch("location", function(prop, oldval, newval) {
 			this.unload();
 
@@ -201,7 +211,11 @@ function forestviewer(element) {
 			this.display.innerHTML = "Loading the forest...";
 			var this_obj = this;
 			if (request_forest(newval, function(r) {
+						if (reccheck)
+							return;
+						reccheck ++;
 						this_obj.load(r);
+						reccheck --;
 					}, function(err) {
 						this_obj.location = "";
 						this_obj.display.innerHTML =
@@ -213,6 +227,10 @@ function forestviewer(element) {
 		});
 
 	this.watch("data", function(prop, oldval, newval) {
+			if (reccheck)
+				return newval;
+			reccheck ++;
+
 			this.unload();
 
 			if (!newval)
@@ -220,10 +238,16 @@ function forestviewer(element) {
 
 			this.display.innerHTML = "Loading the forest...";
 			this.load(newval);
+
+			reccheck --;
 			return newval;
 		});
 
 	this.watch("forest", function(prop, oldval, newval) {
+			if (reccheck)
+				return newval;
+			reccheck ++;
+
 			this.unload();
 
 			if (!newval)
@@ -231,6 +255,8 @@ function forestviewer(element) {
 
 			this.display.innerHTML = "Loading the forest...";
 			this.showforest(newval);
+
+			reccheck --;
 			return newval;
 		});
 
@@ -502,7 +528,7 @@ forestviewer.prototype.showforest = function(input) {
 
 	if (this.popup_on_init)
 		this.set_general_info(forest);
-	this.forest = forest;
+	this.forest = forest; /* TODO: recurse check */
 	this.nodes = forest.nodes;
 	this.startnode = forest.root;
 
@@ -533,9 +559,6 @@ forestviewer.prototype.load = function(input) {
 			}
 
 		menu += "</p>";
-
-		this.unload();
-
 		this.display.innerHTML = menu;
 
 		return;
@@ -544,66 +567,59 @@ forestviewer.prototype.load = function(input) {
 	if (this.helper.prepare)
 		this.helper.prepare(input);
 
-	var forest = input;
-	if (input.forest)
-		forest = input.forest;
-	if (!forest.stats || !forest.text) {
+	if ("forest" in input)
+		input = input.forest;
+	if (!input.stats || !input.text) {
 		this.location = "";
 		this.display.innerHTML = "Couldn't parse input";
+		return;
+	}
+
+	if ("from" in input.node)
+		input.node = [ input.node ]; /* Ugly work-around */
+
+	if (!input.startnode || !parseInt(input.stats.trees)) {
+		this.display.innerHTML = "";
+		return;
+	}
+
+	if (!input.startnode.label)
+		input.startnode.label = input.startnode["#text"];
+
+	/* Locate the start node */
+	var startnid = null;
+	var newforest;
+
+	try {
+		for (var nnum in input.node) {
+			var node = input.node[nnum];
+			if (node.nonterminal && node.nonterminal.category ==
+					input.startnode.label &&
+					node.from == input.startnode.from &&
+					node.to == input.startnode.to) {
+				if (startnid != null)
+					throw "multiple start nodes present";
+
+				startnid = nnum;
+			}
+		}
+
+		if (startnid == null)
+			throw "no start nodes present";
+
+		newforest = new forest(input.node, startnid);
+	} catch (e) {
+		this.display.innerHTML = "Can't parse: " + e;
 		return;
 	}
 
 	this.unload();
 
 	if (this.popup_on_init)
-		this.set_general_info(forest);
-	this.forest = forest;
-	if (!forest.startnode || !parseInt(forest.stats.trees)) {
-		this.display.innerHTML = "";
-		return;
-	}
-
-	if ("from" in forest.node)
-		forest.node = [ forest.node ]; /* Ugly work-around */
-
-	/* Locate the start node */
-	this.startnode = null;
-	this.nodes = {};
-	this.copy = forest.copy;
-	if (!forest.startnode.label)
-		forest.startnode.label = forest.startnode["#text"];
-
-	try {
-		for (var nnum in forest.node) {
-			var node = new forestnode(forest.node[nnum]);
-			this.nodes[node.nid] = node;
-
-			if (node.terminal && node.to != node.from + 1)
-				throw "terminal spans multiple lexemes (" +
-					(node.from + 1) + " - " + node.to + ")";
-
-			if ("nid" in forest.startnode)
-				continue;
-			if (node.nonterminal && node.nonterminal.category ==
-					forest.startnode.label &&
-				node.from == forest.startnode.from &&
-				node.to == forest.startnode.to) {
-				if (this.startnode)
-					throw "multiple start nodes present";
-
-				this.startnode = node;
-			}
-		}
-		if ("nid" in forest.startnode)
-			this.startnode = this.nodes[forest.startnode.nid];
-
-		if (!this.startnode)
-			throw "no start nodes present";
-		this.startnode.set_default_tree(this, {});
-	} catch (e) {
-		this.display.innerHTML = "Can't parse: " + e;
-		return;
-	}
+		this.set_general_info(newforest);
+	this.forest = newforest; /* TODO: recurse check */
+	this.nodes = newforest.nodes;
+	this.startnode = newforest.root;
 
 	/* From here on, we should be independent of input format */
 
